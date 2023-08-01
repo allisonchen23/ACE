@@ -18,6 +18,15 @@ from visualizations import show_image, show_image_rows
 
 class ConceptDiscovery(object):
     def __init__(self,
+                 filepaths,
+                 features_model,
+                 superpixel_method='slic',
+                 superpixel_param_dict=None,
+                 cluster_method='KM',
+                 cluster_param_dict=None,
+                 device=None,
+                 batch_size=256,
+                 channel_mean=True,
                  n_workers=100,
                  average_image_value=117,
                  image_shape=(224, 224),
@@ -35,53 +44,151 @@ class ConceptDiscovery(object):
         self.verbose = verbose
         self.log_path = os.path.join(self.checkpoint_dir, 'log.txt')
         
+        self.filepaths = filepaths
         self.discovery_images = None
-        self.dataset, self.image_numbers, self.patches =\
-            None, None, None
-        self.features = None
+        self.features_model = features_model
+        self.superpixel_method = superpixel_method
+        if superpixel_param_dict is None:
+            self.superpixel_param_dict = {}
+        else:
+            self.superpixel_param_dict = superpixel_param_dict
         
-    def create_or_load_patches(self,
-                               filepaths=None,
-                               method='slic',
-                               discovery_images=None,
-                               param_dict=None,
-                               save=False):
-        load_patches = True
+        self.cluster_method = cluster_method
+        if cluster_param_dict is None:
+            self.cluster_param_dict = {}
+        else:
+            self.cluster_param_dict = cluster_param_dict
+        self.device = device
+        self.batch_size = batch_size
+        self.channel_mean = channel_mean
+        # self.discovery_images = None
+        # self.dataset, self.image_numbers, self.patches =\
+        #     None, None, None
+        # self.features = None
+        
+    def create_or_load_features(self,
+                            #    filepaths=None,
+                            #    method='slic',
+                            #    discovery_images=None,
+                            #    param_dict=None,
+                               save=True):
+        load_features = True
         if not save:
-            load_patches = False
+            load_features = False
         
         # Check if filepaths is saved
         saved_filepaths_path = os.path.join(self.checkpoint_dir, 'filepaths.txt')
         if not os.path.exists(saved_filepaths_path):
-            load_patches = False
+            load_features = False
         
         # Compare saved filepaths to passed in filepaths
         saved_filepaths = np.array(read_lists(saved_filepaths_path))
         
-        if not (saved_filepaths == filepaths).all():
-            load_patches = False
+        if not (saved_filepaths == self.filepaths).all():
+            load_features = False
         
         # Check if number of directories in 'patches' == length of filepaths
-        patches_dir = os.path.join(self.checkpoint_dir, 'patches')
-        n_patch_dirs = len(os.listdir(patches_dir))
-        if not n_patch_dirs == len(filepaths):
-            load_patches = False
+        save_dir = os.path.join(self.checkpoint_dir, 'saved')
+        if not os.path.exists(save_dir):
+            load_features = False
+            informal_log("Save directory {} does not exist", self.log_path, timestamp=True)
+        else:
+            n_discovery_img_dirs = len(os.listdir(save_dir))
+            if not n_discovery_img_dirs == len(self.filepaths):
+                load_features = False
         
-        if not load_patches:
-            self._create_patches(
-                method=method,
-                discovery_images=discovery_images,
-                param_dict=param_dict,
-                save=save)
+        if not load_features:
+            informal_log("Loading discovery images...", self.log_path, timestamp=True)
+            discovery_images = load_images_from_files(
+                filenames=self.filepaths,
+                max_imgs=len(self.filepaths),
+                return_filenames=False,
+                do_shuffle=False,
+                run_parallel=False,
+                shape=self.image_shape)
+            informal_log("Obtaining features for superpixel patches...", self.log_path, timestamp=True)
+            self._create_features(
+                discovery_images=discovery_images
+            )
         else:
             # If we have gotten here, load the patches
-            informal_log("Loading patches found at {}...".format(patches_dir), self.log_path, timestamp=True)
-            self._load_patches(
-                    patches_dir=patches_dir,
-                    filepaths=filepaths)
+            informal_log("Loading features found at {}...".format(save_dir), self.log_path, timestamp=True)
+            self._load_features(
+                save_dir=save_dir,
+                filepaths=self.filepaths
+            )
+            #  self._load_patches(
+            #         patches_dir=patches_dir,
+            #         filepaths=filepaths)
+    # def create_or_load_patches(self,
+    #                            filepaths=None,
+    #                            method='slic',
+    #                            discovery_images=None,
+    #                            param_dict=None,
+    #                            save=False):
+    #     load_patches = True
+    #     if not save:
+    #         load_patches = False
+        
+    #     # Check if filepaths is saved
+    #     saved_filepaths_path = os.path.join(self.checkpoint_dir, 'filepaths.txt')
+    #     if not os.path.exists(saved_filepaths_path):
+    #         load_patches = False
+        
+    #     # Compare saved filepaths to passed in filepaths
+    #     saved_filepaths = np.array(read_lists(saved_filepaths_path))
+        
+    #     if not (saved_filepaths == filepaths).all():
+    #         load_patches = False
+        
+    #     # Check if number of directories in 'patches' == length of filepaths
+    #     patches_dir = os.path.join(self.checkpoint_dir, 'patches')
+    #     n_patch_dirs = len(os.listdir(patches_dir))
+    #     if not n_patch_dirs == len(filepaths):
+    #         load_patches = False
+        
+    #     if not load_patches:
+    #         self._create_patches(
+    #             method=method,
+    #             discovery_images=discovery_images,
+    #             param_dict=param_dict,
+    #             save=save)
+    #     else:
+    #         # If we have gotten here, load the patches
+    #         informal_log("Loading patches found at {}...".format(patches_dir), self.log_path, timestamp=True)
+    #         self._load_patches(
+    #                 patches_dir=patches_dir,
+    #                 filepaths=filepaths)
             
         
-    # TODO: Replace this with _load_features()
+
+    def _load_features(self,
+                       save_dir,
+                       filepaths):
+        features = []
+        image_numbers = []
+        patch_numbers = []
+        
+        # Load each patch data and add to appropriate list
+        for idx, _ in tqdm(enumerate(filepaths)):
+            image_dir = os.path.join(save_dir, str(idx))
+            features_path = os.path.join(image_dir, 'features.pth')
+            cur_features = torch.load(features_path)
+            
+            image_patch_numbers_path = os.path.join(image_dir, 'image_patch_numbers.pth')
+            image_patch_numbers = torch.load(image_patch_numbers_path)
+            cur_image_numbers = image_patch_numbers['image_numbers']
+            cur_patch_numbers = image_patch_numbers['patch_numbers']
+
+            features.append(cur_features)
+            image_numbers.append(cur_image_numbers)
+            patch_numbers.append(cur_patch_numbers)
+
+        # Concatenate lists
+        self.features = np.concatenate(features, axis=0)
+        self.image_numbers = np.concatenate(image_numbers, axis=0)
+        self.patch_numbers = np.concatenate(patch_numbers, axis=0)
+
     def _load_patches(self,
                       patches_dir,
                       filepaths):
@@ -104,7 +211,106 @@ class ConceptDiscovery(object):
         self.patch_numbers = np.concatenate(patch_numbers, axis=0)
         print("Dataset shape: {}".format(self.dataset.shape))
         
-    def _create_patches(self, 
+    def _create_features(self,
+                      # superpixel segmentation parameters
+                      discovery_images,
+                      # Additional Parameters
+                      save=True,
+                      overwrite=True):
+        if save:
+            save_dir = os.path.join(self.checkpoint_dir, 'saved')
+            ensure_dir(save_dir)
+
+        n_images = len(discovery_images)
+
+        # Store all features, image_numbers, and patch_numbers
+        features = []
+        image_numbers = []
+        patch_numbers = []
+        if self.n_workers > 1:
+            pass
+        else:
+            n_patches_total = 0  # running log of # of patches
+            for image_idx, image in tqdm(enumerate(discovery_images)):
+                # Call _return_superpixels
+                _, image_superpixels, image_patches = self._return_superpixels(
+                    index_img=(image_idx, image),
+                    method=self.superpixel_method,
+                    param_dict=self.superpixel_param_dict
+                )
+                # Convert superpixels and patches into np.arrays
+                image_superpixels = np.array(image_superpixels)
+                image_patches = np.array(image_patches)
+                # Store image and patch numbers
+                n_patches_total += len(image_superpixels)
+                cur_image_numbers = np.array([image_idx for i in range(len(image_superpixels))])
+                cur_patch_numbers = np.array([i for i in range(len(image_superpixels))])
+
+                # Call get_features
+                superpixel_features = self.get_features(
+                    dataset=image_superpixels
+                )
+                # superpixel_features = self.get_features(
+                #     features_model=self.features_model,
+                #     device=self.device,
+                #     batch_size=self.batch_size,
+                #     channel_mean=self.channel_mean,
+                #     dataset=image_superpixels
+                # )
+                features.append(superpixel_features)
+                image_numbers.append(cur_image_numbers)
+                patch_numbers.append(cur_patch_numbers)
+                if save:
+                    image_save_dir = os.path.join(save_dir, str(image_idx))
+                    ensure_dir(image_save_dir)
+                    # Save patches and superpixel patches
+                    image_save_data = {
+                        'superpixels': image_superpixels, 
+                        'patches': image_patches
+                    }
+                    # Save image and patch numbers
+                    image_patch_numbers = {
+                        'image_numbers': cur_image_numbers,
+                        'patch_numbers': cur_patch_numbers
+                    }
+
+                    datas = [
+                        image_save_data,
+                        image_patch_numbers,
+                        superpixel_features
+                    ]
+                    names = ['image_data', 'image_patch_numbers', 'features']
+                    self._save(
+                        datas=datas,
+                        names=names,
+                        save_dir=image_save_dir,
+                        overwrite=overwrite
+                    )
+
+                if image_idx % 10 == 0:
+                    informal_log("Created patches for {}/{} samples...".format(image_idx+1, n_images), 
+                                     self.log_path, timestamp=True)
+                    informal_log("Running total of {} patches created...".format(n_patches_total), 
+                                     self.log_path, timestamp=True)
+        self.features = np.concatenate(features, axis=0)
+        self.image_numbers = np.concatenate(image_numbers, axis=0)
+        self.patch_numbers = np.concatenate(patch_numbers, axis=0)
+
+    def _save(self,
+              datas,
+              names,
+              save_dir,
+              overwrite=True):
+        ensure_dir(save_dir)
+        for data, name in zip(datas, names):
+            save_torch(
+                data=data,
+                save_dir=save_dir,
+                name=name,
+                overwrite=overwrite
+            )
+
+    def _create_patches_orig(self, 
                        method='slic', 
                        discovery_images=None,
                        param_dict=None,
@@ -139,9 +345,6 @@ class ConceptDiscovery(object):
         if discovery_images is None:
             raise ValueError("Must pass in np.array for discovery_images. Received {}".format(
                 type(discovery_images)))
-            # raw_imgs = self.load_concept_imgs(
-            #     self.target_class, self.num_discovery_imgs)
-            # self.discovery_images = raw_imgs
         else:
             self.discovery_images = discovery_images
         
@@ -317,7 +520,7 @@ class ConceptDiscovery(object):
             sigmas = param_dict.pop('sigma', [0.8] * n_params)
             min_sizes = param_dict.pop('min_size', [20] * n_params)
         else:
-            raise ValueError('Invalid superpixel method!')
+            raise ValueError('Invalid superpixel method {}!')
         
         unique_masks = []
         for i in range(n_params):
@@ -411,29 +614,30 @@ class ConceptDiscovery(object):
             print("Features shape: {}".format(self.features.shape))
             
     def get_features(self,
-                     features_model,
-                     device,
-                     batch_size=256,
-                     channel_mean=True,
-                     dataset=None):
+                     dataset):
+                    #  features_model,
+                    #  device,
+                    #  batch_size=256,
+                    #  channel_mean=True,
+                    #  dataset=None):
         features = []
         
-        features_model.eval()
-        features_model = features_model.to(device)
-        if dataset is None:
-            if self.dataset is None:
-                raise ValueError("No dataset passed in and self.dataset is None. First run cd.create_patches()")
-            dataset = self.dataset
-            set_self_features = True
-        else:
-            set_self_features = False
-        n_batches = int(dataset.shape[0] / batch_size) + 1
+        self.features_model.eval()
+        features_model = self.features_model.to(self.device)
+        # if dataset is None:
+        #     if self.dataset is None:
+        #         raise ValueError("No dataset passed in and self.dataset is None. First run cd.create_patches()")
+        #     dataset = self.dataset
+        #     set_self_features = True
+        # else:
+        #     set_self_features = False
+        n_batches = int(dataset.shape[0] / self.batch_size) + 1
         with torch.no_grad():
             for batch_idx in tqdm(range(n_batches)):
-                batch = dataset[batch_idx * batch_size : (batch_idx + 1) * batch_size]
+                batch = dataset[batch_idx * self.batch_size : (batch_idx + 1) * self.batch_size]
                 batch = torch.tensor(batch, dtype=torch.float)
                 batch = torch.permute(batch, (0, 3, 1, 2))
-                batch = batch.to(device)
+                batch = batch.to(self.device)
                 
                 batch_features = features_model(batch).cpu().numpy()
                 features.append(batch_features)
@@ -441,25 +645,25 @@ class ConceptDiscovery(object):
         
         # Flatten features to n_samples x feature_dim array either by taking mean across channels
         # Or expanding channel to 1D array
-        if channel_mean and len(features.shape) > 3:
+        if self.channel_mean and len(features.shape) > 3:
             features = np.mean(features, axis=(2, 3))
         else: 
             features = np.reshape(features, [features.shape[0], -1])
         assert features.shape[0] == dataset.shape[0]
         
-        if set_self_features:
-            self.features = features
+        # if set_self_features:
+        #     self.features = features
         return features
         
     
     def discover_concepts(self,
-                          cluster_params,
-                          cluster_method,
+                        #   cluster_params,
+                        #   cluster_method,
                           save=False):
         
         cluster_assignments, cluster_costs, cluster_centers = self._cluster_patches(
-            cluster_params=cluster_params,
-            cluster_method=cluster_method,
+            cluster_params=self.cluster_params,
+            cluster_method=self.cluster_method,
             features=self.features)
         
         # If for some reason cluster_centers is 1 x C x D, squeeze it to be C x D

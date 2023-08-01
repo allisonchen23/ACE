@@ -5,6 +5,7 @@ __pycache__/
 data/
 checkpoints/
 temp*/
+.vscode/
 # C extensions
 *.so
 

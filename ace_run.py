@@ -65,7 +65,8 @@ def main(n_samples,
     seed = 0
     n_workers = 0
     image_shape = (224, 224)
-    slic_params = {
+    superpixel_method = 'slic'
+    superpixel_param_dict = {
         'n_segments': [15, 50, 80],
         'compactness': [10, 10, 10]
     }
@@ -80,7 +81,7 @@ def main(n_samples,
     
     # Variables for clustering
     cluster_method = 'KM'
-    KM_params = {
+    cluster_param_dict = {
         'n_clusters': 25
     }
 
@@ -99,44 +100,17 @@ def main(n_samples,
     paths_save_path = os.path.join(save_dir, 'filepaths.txt')
     write_lists(paths, paths_save_path)
 
-    images = load_images_from_files(
-        filenames=paths,
-        max_imgs=n_samples,
-        return_filenames=False,
-        do_shuffle=False,
-        run_parallel=False,
-        shape=image_shape)
-    if verbose:
-        informal_log("Loaded {} images of shape {}".format(images.shape[0], images.shape[1:]),
-                    log_path, timestamp=True)
+    # images = load_images_from_files(
+    #     filenames=paths,
+    #     max_imgs=n_samples,
+    #     return_filenames=False,
+    #     do_shuffle=False,
+    #     run_parallel=False,
+    #     shape=image_shape)
+    # if verbose:
+    #     informal_log("Loaded {} images of shape {}".format(images.shape[0], images.shape[1:]),
+    #                 log_path, timestamp=True)
     
-    # Create concept discovery object
-    cd = ConceptDiscovery(
-        average_image_value=average_pixel_value,
-        image_shape=image_shape,
-        n_workers=0,
-        checkpoint_dir=save_dir)
-    
-    # Create patches
-    if verbose: 
-        informal_log("Obtaining patches...", log_path, timestamp=True)
-    cd.create_or_load_patches(
-        filepaths=paths,
-        method='slic',
-        param_dict=slic_params,
-        discovery_images=images,
-        save=True)
-    
-    # cd.create_patches(
-    #     method='slic',
-    #     param_dict=slic_params,
-    #     discovery_images=images,
-    #     save=True)
-    
-    if verbose:
-        informal_log("Created patches from {} images".format(len(images)), log_path, timestamp=True)
-    
-    return
     # Load model
     informal_log("Loading model..", log_path, timestamp=True)
     model, features_model = load_features_model(
@@ -145,12 +119,60 @@ def main(n_samples,
         device=device,
         checkpoint_path=model_checkpoint_path)
     
-    if verbose:
-        informal_log("Obtaining features of patches...", log_path, timestamp=True)
-    cd.get_features(
+    # Create concept discovery object
+    cd = ConceptDiscovery(
+        filepaths = paths,
         features_model=features_model,
+        # Superpixel segmentation parameters
+        superpixel_method=superpixel_method,
+        superpixel_param_dict=superpixel_param_dict,
+        # Cluster parameters
+        cluster_method=cluster_method,
+        cluster_param_dict=cluster_param_dict,
+        # Feature extraction parameters
         device=device,
-        batch_size=batch_size)
+        batch_size=batch_size,
+        channel_mean=True,
+        average_image_value=average_pixel_value,
+        image_shape=image_shape,
+        n_workers=n_workers,
+        checkpoint_dir=save_dir,
+        seed=seed)
+    
+    # Create patches
+    if verbose: 
+        informal_log("Obtaining superpixel patches and corresponding features...", log_path, timestamp=True)
+    cd.create_or_load_features()
+    # cd.create_or_load_patches(
+    #     filepaths=paths,
+    #     method='slic',
+    #     param_dict=slic_params,
+    #     discovery_images=images,
+    #     save=True)
+    
+    # cd.create_patches(
+    #     method='slic',
+    #     param_dict=slic_params,
+    #     discovery_images=images,
+    #     save=True)
+    
+    if verbose:
+        informal_log("Created patches from {} images".format(len(paths)), log_path, timestamp=True)
+    
+    # # Load model
+    # informal_log("Loading model..", log_path, timestamp=True)
+    # model, features_model = load_features_model(
+    #     arch=model_arch,
+    #     n_classes=n_classes,
+    #     device=device,
+    #     checkpoint_path=model_checkpoint_path)
+    
+    # if verbose:
+    #     informal_log("Obtaining features of patches...", log_path, timestamp=True)
+    # cd.get_features(
+    #     features_model=features_model,
+    #     device=device,
+    #     batch_size=batch_size)
     # if verbose:
     #     informal_log("Saving patches and features...", log_path, timestamp=True)
     # cd.save()
@@ -159,7 +181,7 @@ def main(n_samples,
     if verbose:
         informal_log("Clustering to discover concepts...", log_path, timestamp=True)
     concept_centers, concept_image_data = cd.discover_concepts(
-        cluster_params=KM_params,
+        cluster_params=cluster_param_dict,
         cluster_method=cluster_method,
         save=True)
     
