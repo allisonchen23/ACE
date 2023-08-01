@@ -157,7 +157,7 @@ def main(n_samples,
     #     save=True)
     
     if verbose:
-        informal_log("Created patches from {} images".format(len(paths)), log_path, timestamp=True)
+        informal_log("Created patches & features from {} images".format(len(paths)), log_path, timestamp=True)
     
     # # Load model
     # informal_log("Loading model..", log_path, timestamp=True)
@@ -177,6 +177,8 @@ def main(n_samples,
     #     informal_log("Saving patches and features...", log_path, timestamp=True)
     # cd.save()
     
+    if n_samples > 10: 
+        return
     # Clustering
     if verbose:
         informal_log("Clustering to discover concepts...", log_path, timestamp=True)

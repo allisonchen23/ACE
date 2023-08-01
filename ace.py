@@ -91,7 +91,7 @@ class ConceptDiscovery(object):
         save_dir = os.path.join(self.checkpoint_dir, 'saved')
         if not os.path.exists(save_dir):
             load_features = False
-            informal_log("Save directory {} does not exist", self.log_path, timestamp=True)
+            informal_log("Save directory {} does not exist".format(save_dir), self.log_path, timestamp=True)
         else:
             n_discovery_img_dirs = len(os.listdir(save_dir))
             if not n_discovery_img_dirs == len(self.filepaths):
