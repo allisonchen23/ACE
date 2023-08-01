@@ -56,13 +56,14 @@ class ConceptDiscovery(object):
             load_patches = False
         
         # Compare saved filepaths to passed in filepaths
-        saved_filepaths = read_lists(saved_filepaths_path)
-        if not saved_filepaths == filepaths:
+        saved_filepaths = np.array(read_lists(saved_filepaths_path))
+        
+        if not (saved_filepaths == filepaths).all():
             load_patches = False
         
         # Check if number of directories in 'patches' == length of filepaths
         patches_dir = os.path.join(self.checkpoint_dir, 'patches')
-        n_patch_dirs = len(os.path.listdir(patches_dir))
+        n_patch_dirs = len(os.listdir(patches_dir))
         if not n_patch_dirs == len(filepaths):
             load_patches = False
         
@@ -76,10 +77,11 @@ class ConceptDiscovery(object):
             # If we have gotten here, load the patches
             informal_log("Loading patches found at {}...".format(patches_dir), self.log_path, timestamp=True)
             self._load_patches(
-                patch_dir=patch_dir,
-                filepaths=filepaths)
+                    patches_dir=patches_dir,
+                    filepaths=filepaths)
             
         
+    # TODO: Replace this with _load_features()
     def _load_patches(self,
                       patches_dir,
                       filepaths):
@@ -89,7 +91,7 @@ class ConceptDiscovery(object):
         
         # Load each patch data and add to appropriate list
         for idx, _ in tqdm(enumerate(filepaths)):
-            patch_dir = os.path.join(patches_dir, idx)
+            patch_dir = os.path.join(patches_dir, str(idx))
             patch_data_path = os.path.join(patch_dir, 'patches.pth')
             patch_data = torch.load(patch_data_path)
             dataset.append(patch_data['superpixels'])
@@ -106,7 +108,11 @@ class ConceptDiscovery(object):
                        method='slic', 
                        discovery_images=None,
                        param_dict=None,
-                       save=False):
+                       save=False,
+                       features_model=None,
+                       device=None,
+                       batch_size=256,
+                       channel_mean=True):
         """Creates a set of image patches using superpixel methods.
 
         This method takes in the concept discovery images and transforms it to a
@@ -198,23 +204,43 @@ class ConceptDiscovery(object):
                 n_patches += len(image_superpixels)
                 cur_image_numbers = np.array([fn for i in range(len(image_superpixels))])
                 cur_patch_numbers = np.array([i for i in range(len(image_superpixels))])
+                
+                # Get features for this image's superpixel patches
+                superpixel_features = self.get_features(
+                    features_model=features_model,
+                    device=device,
+                    batch_size=batch_size,
+                    channel_mean=channel_mean,
+                    dataset=image_superpixels)
                 if save:
                     image_save_dir = os.path.join(save_dir, str(fn))
                     ensure_dir(image_save_dir)
-                    save_data = {
+                    image_save_data = {
                         'superpixels': image_superpixels, 
-                        'patches': image_patches,
+                        'patches': image_patches
+                    }
+                    image_patch_numbers = {
                         'image_numbers': cur_image_numbers,
                         'patch_numbers': cur_patch_numbers
                     }
                     save_torch(
-                        data=save_data,
+                        data=image_save_data,
                         save_dir=image_save_dir,
-                        name='patches',
+                        name='image_patches',
                         overwrite=True)
-                    dataset.append(image_superpixels)
-                    image_numbers.append(cur_image_numbers)
-                    patch_numbers.append(cur_patch_numbers)
+                    save_torch(
+                        data=image_patch_numbers,
+                        save_dir=image_save_dir,
+                        name='image_patch_numbers',
+                        overwrite=True)
+                    save_torch(
+                        data=superpixel_features,
+                        save_dir=image_save_dir,
+                        name='features',
+                        overwrite=True)
+                    # dataset.append(image_superpixels)
+                    # image_numbers.append(cur_image_numbers)
+                    # patch_numbers.append(cur_patch_numbers)
                 else: 
                     # for superpixel, patch in zip(image_superpixels, image_patches):
                     #     dataset.append(superpixel)
@@ -230,14 +256,15 @@ class ConceptDiscovery(object):
                     informal_log("Running total of {} patches created...".format(n_patches), 
                                      self.log_path, timestamp=True)
         if save:
-            self.dataset = np.concatenate(dataset, axis=0)
-            self.image_numbers = np.concatenate(image_numbers, axis=0)
-            self.patch_numbers = np.concatenate(patch_numbers, axis=0)
+            pass
+            # self.dataset = np.concatenate(dataset, axis=0)
+            # self.image_numbers = np.concatenate(image_numbers, axis=0)
+            # self.patch_numbers = np.concatenate(patch_numbers, axis=0)
         else:
             self.dataset, self.image_numbers, self.patches =\
             np.concatenate(dataset, axis=0), np.concatenate(image_numbers, axis=0), np.concatenate(patches, axis=0)
-        assert len(self.dataset.shape) == 4
-        assert self.dataset.shape[0] == self.image_numbers.shape[0]
+        # assert len(self.dataset.shape) == 4
+        # assert self.dataset.shape[0] == self.image_numbers.shape[0]
 
     def _return_superpixels(self, index_img, method='slic',
               param_dict=None):
@@ -422,8 +449,7 @@ class ConceptDiscovery(object):
         
         if set_self_features:
             self.features = features
-        else:
-            return features
+        return features
         
     
     def discover_concepts(self,
