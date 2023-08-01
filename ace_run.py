@@ -119,12 +119,19 @@ def main(n_samples,
     
     # Create patches
     if verbose: 
-        informal_log("Creating patches...", log_path, timestamp=True)
-    cd.create_patches(
+        informal_log("Obtaining patches...", log_path, timestamp=True)
+    cd.create_or_load_patches(
+        filepaths=paths,
         method='slic',
         param_dict=slic_params,
         discovery_images=images,
         save=True)
+    
+    # cd.create_patches(
+    #     method='slic',
+    #     param_dict=slic_params,
+    #     discovery_images=images,
+    #     save=True)
     
     if verbose:
         informal_log("Created patches from {} images".format(len(images)), log_path, timestamp=True)

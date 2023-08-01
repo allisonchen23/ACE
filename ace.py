@@ -11,7 +11,7 @@ from datetime import datetime
 from functools import partial
 
 from ace_helpers import *
-from utils import ensure_dir, save_torch, informal_log
+from utils import ensure_dir, save_torch, informal_log, read_lists
 from visualizations import show_image, show_image_rows
 
 
@@ -40,7 +40,69 @@ class ConceptDiscovery(object):
             None, None, None
         self.features = None
         
-    def create_patches(self, 
+    def create_or_load_patches(self,
+                               filepaths=None,
+                               method='slic',
+                               discovery_images=None,
+                               param_dict=None,
+                               save=False):
+        load_patches = True
+        if not save:
+            load_patches = False
+        
+        # Check if filepaths is saved
+        saved_filepaths_path = os.path.join(self.checkpoint_dir, 'filepaths.txt')
+        if not os.path.exists(saved_filepaths_path):
+            load_patches = False
+        
+        # Compare saved filepaths to passed in filepaths
+        saved_filepaths = read_lists(saved_filepaths_path)
+        if not saved_filepaths == filepaths:
+            load_patches = False
+        
+        # Check if number of directories in 'patches' == length of filepaths
+        patches_dir = os.path.join(self.checkpoint_dir, 'patches')
+        n_patch_dirs = len(os.path.listdir(patches_dir))
+        if not n_patch_dirs == len(filepaths):
+            load_patches = False
+        
+        if not load_patches:
+            self._create_patches(
+                method=method,
+                discovery_images=discovery_images,
+                param_dict=param_dict,
+                save=save)
+        else:
+            # If we have gotten here, load the patches
+            informal_log("Loading patches found at {}...".format(patches_dir), self.log_path, timestamp=True)
+            self._load_patches(
+                patch_dir=patch_dir,
+                filepaths=filepaths)
+            
+        
+    def _load_patches(self,
+                      patches_dir,
+                      filepaths):
+        dataset = []
+        image_numbers = []
+        patch_numbers = []
+        
+        # Load each patch data and add to appropriate list
+        for idx, _ in tqdm(enumerate(filepaths)):
+            patch_dir = os.path.join(patches_dir, idx)
+            patch_data_path = os.path.join(patch_dir, 'patches.pth')
+            patch_data = torch.load(patch_data_path)
+            dataset.append(patch_data['superpixels'])
+            image_numbers.append(patch_data['image_numbers'])
+            patch_numbers.append(patch_data['patch_numbers'])
+
+        # Concatenate lists
+        self.dataset = np.concatenate(dataset, axis=0)
+        self.image_numbers = np.concatenate(image_numbers, axis=0)
+        self.patch_numbers = np.concatenate(patch_numbers, axis=0)
+        print("Dataset shape: {}".format(self.dataset.shape))
+        
+    def _create_patches(self, 
                        method='slic', 
                        discovery_images=None,
                        param_dict=None,
@@ -97,10 +159,14 @@ class ConceptDiscovery(object):
                     fn, image_superpixels, image_patches = output
                     image_save_dir = os.path.join(save_dir, str(fn))
                     ensure_dir(image_save_dir)
+                    cur_image_numbers = np.array([fn for i in range(len(image_superpixels))])
+                    cur_patch_numbers = np.array([i for i in range(len(image_superpixels))])
+                    
                     save_data = {
                         'superpixels': image_superpixels,
                         'patches': image_patches,
-                        'image_numbers': [fn for i in range(len(image_superpixels))]
+                        'image_numbers': cur_image_numbers,
+                        'patch_numbers': cur_patch_numbers
                     }
                     save_torch(
                         data=save_data,
@@ -138,8 +204,8 @@ class ConceptDiscovery(object):
                     save_data = {
                         'superpixels': image_superpixels, 
                         'patches': image_patches,
-                        'image_numbers': image_numbers,
-                        'patch_numbers': patch_numbers
+                        'image_numbers': cur_image_numbers,
+                        'patch_numbers': cur_patch_numbers
                     }
                     save_torch(
                         data=save_data,
@@ -171,7 +237,7 @@ class ConceptDiscovery(object):
             self.dataset, self.image_numbers, self.patches =\
             np.concatenate(dataset, axis=0), np.concatenate(image_numbers, axis=0), np.concatenate(patches, axis=0)
         assert len(self.dataset.shape) == 4
-        assert len(self.image_numbers.shape) == 4
+        assert self.dataset.shape[0] == self.image_numbers.shape[0]
 
     def _return_superpixels(self, index_img, method='slic',
               param_dict=None):

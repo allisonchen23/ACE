@@ -6,8 +6,8 @@
 #SBATCH --gres=gpu:rtx_3090:1          # the number of GPUs requested
 #SBATCH --mem=50G             # memory 
 #SBATCH -o temp/%j_%x_run.txt         # send stdout to outfile
-#SBATCH -e temp/%j_%x_run.txt         # send stderr to errfile
+#SBATCH -e temp/%j_%x_err.txt         # send stderr to errfile
 #SBATCH -t 72:00:00           # time requested in hour:minute:second
 
 python ace_run.py \
---n_samples 160
+--n_samples 10
