@@ -661,9 +661,9 @@ class ConceptDiscovery(object):
                         #   cluster_method,
                           save=False):
         
-        cluster_assignments, cluster_costs, cluster_centers = self._cluster_patches(
-            cluster_params=self.cluster_params,
-            cluster_method=self.cluster_method,
+        cluster_assignments, cluster_costs, cluster_centers = self._cluster_features(
+            # cluster_params=self.cluster_params,
+            # cluster_method=self.cluster_method,
             features=self.features)
         
         # If for some reason cluster_centers is 1 x C x D, squeeze it to be C x D
@@ -683,17 +683,17 @@ class ConceptDiscovery(object):
         
         return concept_centers, top_concept_image_data
             
-    def _cluster_patches(self,
-                        cluster_params,
-                        cluster_method='KM',
+    def _cluster_features(self,
+                        # cluster_params,
+                        # cluster_method='KM',
                         features=None):
         if features is None:
             if self.features is None:
-                raise ValueError("No features passed in and self.features is None. First run cd.get_features()")
+                raise ValueError("No features passed in and self.features is None. First run cd.create_or_load_features()")
             features = self.features
             
-        if cluster_method == 'KM':
-            n_clusters = cluster_params.pop('n_clusters', 25)
+        if self.cluster_method == 'KM':
+            n_clusters = self.cluster_params.pop('n_clusters', 25)
             kmeans = cluster.KMeans(
                 n_clusters,
                 random_state=self.seed)
@@ -710,7 +710,7 @@ class ConceptDiscovery(object):
             costs = np.min(distance, -1)  # N-dim vector
             return assignments, costs, centers
         else:
-            raise ValueError("Cluster method {} not supported".format(cluster_method))
+            raise ValueError("Cluster method {} not supported".format(self.cluster_method))
             
     
             
@@ -721,10 +721,30 @@ class ConceptDiscovery(object):
                          min_patches=5,
                          max_patches=40):
                          # save_dir=None):
+        '''
+        Given concept assignments, determine which images and patches belong to which concept
+
+        Arg(s):
+            assignments : N np.array
+                N : number of patches
+                Assignment to which cluster each patch belongs to
+            costs : N np.array
+                N : number of patches
+                Cost of each patch's assignment
+            centers : 1 x C x D np.array
+                C : number of concepts/clusters
+                D : feature dimension (e.g. 512)
+                The center of each cluster/concept
+            min_patches : int
+                Minimum number of patches for a concept to count
+            max_patches : int
+                Maximum number of patches to include in each concept.
+                Chosen by increasing cost
+        '''
         n_concepts = assignments.max() + 1
         concept_number = 0
         concept_centers = []
-        top_concept_image_data = []
+        top_concept_indexing_data = []
         for concept_idx in range(n_concepts):
             # Get indices of superpixel patches that are in this concept 
             label_idxs = np.where(assignments == concept_idx)[0]
@@ -757,13 +777,12 @@ class ConceptDiscovery(object):
             # Keep up to max_patches patches for this concept, sorting by increasing cost
             concept_costs = costs[label_idxs]
             concept_idxs = label_idxs[np.argsort(concept_costs)[:max_patches]]
-            # Save superpixel patches, patches, and image numbers for top examples of this concept
-            image_data = {
-                'images': self.dataset[concept_idxs],
-                'patches': self.patches[concept_idxs],
-                'image_numbers': self.image_numbers[concept_idxs]
+            # Save image numbers and patch numbers for top examples of this concept
+            patch_index_data = {
+                'image_numbers': self.image_numbers[concept_idxs],
+                'patch_numbers': self.patch_numbers[concept_idxs]
             }
-            top_concept_image_data.append(image_data)
+            top_concept_indexing_data.append(patch_index_data)
         
         # if save_dir is not None:
         #     save_path = save_torch(
@@ -774,7 +793,7 @@ class ConceptDiscovery(object):
         #     if save_path:
         #         print("Saved concept image data to {}".format(save_path))
             
-        return concept_centers, top_concept_image_data
+        return concept_centers, top_concept_indexing_data
     
     def _save_concept_image_data(self, 
                                  concept_image_data):
