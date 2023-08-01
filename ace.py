@@ -67,7 +67,7 @@ class ConceptDiscovery(object):
             ensure_dir(save_dir)
         if param_dict is None:
             param_dict = {}
-        dataset, image_numbers, patches = [], [], []
+        dataset, image_numbers, patch_numbers, patches = [], [], [], []
         if discovery_images is None:
             raise ValueError("Must pass in np.array for discovery_images. Received {}".format(
                 type(discovery_images)))
@@ -125,33 +125,53 @@ class ConceptDiscovery(object):
                         image_numbers.append(idx)
         else:
             n_images = len(self.discovery_images)
+            n_patches = 0
             for fn, img in tqdm(enumerate(self.discovery_images)):
                 _, image_superpixels, image_patches = self._return_superpixels(
                     (fn, img), method, param_dict)
+                n_patches += len(image_superpixels)
+                cur_image_numbers = np.array([fn for i in range(len(image_superpixels))])
+                cur_patch_numbers = np.array([i for i in range(len(image_superpixels))])
                 if save:
                     image_save_dir = os.path.join(save_dir, str(fn))
                     ensure_dir(image_save_dir)
                     save_data = {
                         'superpixels': image_superpixels, 
                         'patches': image_patches,
-                        'image_numbers': [fn for i in range(len(image_superpixels))]
+                        'image_numbers': image_numbers,
+                        'patch_numbers': patch_numbers
                     }
                     save_torch(
                         data=save_data,
                         save_dir=image_save_dir,
                         name='patches',
                         overwrite=True)
+                    dataset.append(image_superpixels)
+                    image_numbers.append(cur_image_numbers)
+                    patch_numbers.append(cur_patch_numbers)
                 else: 
-                    for superpixel, patch in zip(image_superpixels, image_patches):
-                        dataset.append(superpixel)
-                        patches.append(patch)
-                        image_numbers.append(fn)
+                    # for superpixel, patch in zip(image_superpixels, image_patches):
+                    #     dataset.append(superpixel)
+                    #     patches.append(patch)
+                    #     image_numbers.append(fn)
+                    dataset.append(image_superpixels)
+                    patches.append(image_patches)
+                    image_numbers.append(cur_image_numbers)
+                    patch_numbers.append(cur_patch_numbers)
                 if fn % 10 == 0:
                     informal_log("Created patches for {}/{} samples...".format(fn+1, n_images), 
                                      self.log_path, timestamp=True)
-        if not save:
+                    informal_log("Running total of {} patches created...".format(n_patches), 
+                                     self.log_path, timestamp=True)
+        if save:
+            self.dataset = np.concatenate(dataset, axis=0)
+            self.image_numbers = np.concatenate(image_numbers, axis=0)
+            self.patch_numbers = np.concatenate(patch_numbers, axis=0)
+        else:
             self.dataset, self.image_numbers, self.patches =\
-            np.array(dataset), np.array(image_numbers), np.array(patches)
+            np.concatenate(dataset, axis=0), np.concatenate(image_numbers, axis=0), np.concatenate(patches, axis=0)
+        assert len(self.dataset.shape) == 4
+        assert len(self.image_numbers.shape) == 4
 
     def _return_superpixels(self, index_img, method='slic',
               param_dict=None):
