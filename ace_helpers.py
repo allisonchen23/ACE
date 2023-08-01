@@ -1,6 +1,6 @@
 """ collection of various helper functions for running ACE"""
 
-from multiprocessing import dummy as multiprocessing
+from multiprocessing import dummy as multiprocessing_dummy
 import sys
 import os
 from matplotlib import pyplot as plt
@@ -12,6 +12,8 @@ from skimage.segmentation import mark_boundaries
 from sklearn import linear_model
 from sklearn.model_selection import cross_val_score
 import tensorflow as tf
+from functools import partial
+from tqdm import tqdm
 
 def make_model(sess, model_to_run, model_path, 
                labels_path, randomize=False,):
@@ -54,9 +56,9 @@ def load_image_from_file(filename, shape):
   Rasies:
     exception if the image was not the right shape.
   """
-  if not tf.gfile.Exists(filename):
-    tf.logging.error('Cannot find file: {}'.format(filename))
-    return None
+  if not os.path.exists(filename):
+    raise ValueError('Cannot find file: {}'.format(filename))
+    # return None
   try:
     img = np.array(Image.open(filename).resize(
         shape, Image.BILINEAR))
@@ -73,10 +75,12 @@ def load_image_from_file(filename, shape):
   return img
 
 
+
+
 def load_images_from_files(filenames, max_imgs=500, return_filenames=False,
                            do_shuffle=True, run_parallel=True,
-                           shape=(299, 299),
-                           num_workers=100):
+                           shape=(224, 224),
+                           n_workers=100):
   """Return image arrays from filenames.
   Args:
     filenames: locations of image files.
@@ -85,7 +89,7 @@ def load_images_from_files(filenames, max_imgs=500, return_filenames=False,
     do_shuffle: before getting max_imgs files, shuffle the names or not
     run_parallel: get images in parallel or not
     shape: desired shape of the image
-    num_workers: number of workers in parallelization.
+    n_workers: number of workers in parallelization.
   Returns:
     image arrays and succeeded filenames if return_filenames=True.
   """
@@ -97,7 +101,11 @@ def load_images_from_files(filenames, max_imgs=500, return_filenames=False,
   if return_filenames:
     final_filenames = []
   if run_parallel:
-    pool = multiprocessing.Pool(num_workers)
+    pool = multiprocessing_dummy.Pool(n_workers)
+    # pool = multiprocessing.get_context("spawn").Pool(n_workers)
+    # partial_fn = partial(load_image_from_file, shape=shape)
+    # imgs = pool.map(partial_fn,
+    #                 filenames[:max_imgs])
     imgs = pool.map(lambda filename: load_image_from_file(filename, shape),
                     filenames[:max_imgs])
     if return_filenames:
@@ -105,7 +113,7 @@ def load_images_from_files(filenames, max_imgs=500, return_filenames=False,
                          if imgs[i] is not None]
     imgs = [img for img in imgs if img is not None]
   else:
-    for filename in filenames:
+    for filename in tqdm(filenames):
       img = load_image_from_file(filename, shape)
       if img is not None:
         imgs.append(img)
@@ -328,14 +336,14 @@ def cosine_similarity(a, b):
   return cos_sim
 
 
-def similarity(cd, num_random_exp=None, num_workers=25):
+def similarity(cd, num_random_exp=None, n_workers=25):
   """Returns cosine similarity of all discovered concepts.
 
   Args:
     cd: The ConceptDiscovery module for discovered conceps.
     num_random_exp: If None, calculates average similarity using all the class's
       random concepts. If a number, uses that many random counterparts.
-    num_workers: If greater than 0, runs the function in parallel.
+    n_workers: If greater than 0, runs the function in parallel.
 
   Returns:
     A similarity dict in the form of {(concept1, concept2):[list of cosine
@@ -381,8 +389,8 @@ def similarity(cd, num_random_exp=None, num_workers=25):
     similarity_dic[bn] = {pair: [] for pair in concept_pairs}
     def t_func(rnd):
       return concepts_similarity(cd, concepts[bn], rnd, bn)
-    if num_workers:
-      pool = multiprocessing.Pool(num_workers)
+    if n_workers:
+      pool = multiprocessing.Pool(n_workers)
       sims = pool.map(lambda rnd: t_func(rnd), randoms)
     else:
       sims = [t_func(rnd) for rnd in randoms]
