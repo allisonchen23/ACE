@@ -40,8 +40,11 @@ class ConceptDiscovery(object):
             None, None, None
         self.features = None
         
-    def create_patches(self, method='slic', discovery_images=None,
-         param_dict=None):
+    def create_patches(self, 
+                       method='slic', 
+                       discovery_images=None,
+                       param_dict=None,
+                       save=False):
         """Creates a set of image patches using superpixel methods.
 
         This method takes in the concept discovery images and transforms it to a
@@ -58,6 +61,10 @@ class ConceptDiscovery(object):
         {'n_segments':[15,50,80], 'compactness':[10,10,10]} for slic
         method.
         """
+        
+        if save:
+            save_dir = os.path.join(self.checkpoint_dir, 'patches')
+            ensure_dir(save_dir)
         if param_dict is None:
             param_dict = {}
         dataset, image_numbers, patches = [], [], []
@@ -86,31 +93,65 @@ class ConceptDiscovery(object):
             for output in pool.imap_unordered(
                 partial_fn,
                 idx_imgs):
-                outputs.append(output)
+                if save:
+                    fn, image_superpixels, image_patches = output
+                    image_save_dir = os.path.join(save_dir, str(fn))
+                    ensure_dir(image_save_dir)
+                    save_data = {
+                        'superpixels': image_superpixels,
+                        'patches': image_patches,
+                        'image_numbers': [fn for i in range(len(image_superpixels))]
+                    }
+                    save_torch(
+                        data=save_data,
+                        save_dir=image_save_dir,
+                        name='patches',
+                        overwrite=True)
+                    
+                else:
+                    outputs.append(output)
+                    
+                    
                 n_completed += 1
                 if n_completed % self.n_workers == 0 and self.verbose:
                     informal_log("Created patches for {}/{} samples...".format(n_completed, len(self.discovery_images)), self.log_path, timestamp=True)
                                  
-            for _, sp_outputs in enumerate(outputs):
-                idx, image_superpixels, image_patches = sp_outputs
-                for superpixel, patch in zip(image_superpixels, image_patches):
-                    dataset.append(superpixel)
-                    patches.append(patch)
-                    image_numbers.append(idx)
+            if not save:
+                for _, sp_outputs in enumerate(outputs):
+                    idx, image_superpixels, image_patches = sp_outputs
+                    for superpixel, patch in zip(image_superpixels, image_patches):
+                        dataset.append(superpixel)
+                        patches.append(patch)
+                        image_numbers.append(idx)
         else:
             n_images = len(self.discovery_images)
             for fn, img in tqdm(enumerate(self.discovery_images)):
                 _, image_superpixels, image_patches = self._return_superpixels(
                     (fn, img), method, param_dict)
-                for superpixel, patch in zip(image_superpixels, image_patches):
-                    dataset.append(superpixel)
-                    patches.append(patch)
-                    image_numbers.append(fn)
+                if save:
+                    image_save_dir = os.path.join(save_dir, str(fn))
+                    ensure_dir(image_save_dir)
+                    save_data = {
+                        'superpixels': image_superpixels, 
+                        'patches': image_patches,
+                        'image_numbers': [fn for i in range(len(image_superpixels))]
+                    }
+                    save_torch(
+                        data=save_data,
+                        save_dir=image_save_dir,
+                        name='patches',
+                        overwrite=True)
+                else: 
+                    for superpixel, patch in zip(image_superpixels, image_patches):
+                        dataset.append(superpixel)
+                        patches.append(patch)
+                        image_numbers.append(fn)
                 if fn % 10 == 0:
                     informal_log("Created patches for {}/{} samples...".format(fn+1, n_images), 
                                      self.log_path, timestamp=True)
-        self.dataset, self.image_numbers, self.patches =\
-        np.array(dataset), np.array(image_numbers), np.array(patches)
+        if not save:
+            self.dataset, self.image_numbers, self.patches =\
+            np.array(dataset), np.array(image_numbers), np.array(patches)
 
     def _return_superpixels(self, index_img, method='slic',
               param_dict=None):
@@ -131,6 +172,12 @@ class ConceptDiscovery(object):
         method.
         Raises:
         ValueError: if the segementation method is invaled.
+        
+        Returns: 
+            (int, np.array, np.array)
+                int : image index
+                np.array : superpixel patches
+                np.array : normal sized patches
         """
         # Passing in the index allows to use unordered maps
         idx, img = index_img

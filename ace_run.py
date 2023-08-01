@@ -123,10 +123,13 @@ def main(n_samples,
     cd.create_patches(
         method='slic',
         param_dict=slic_params,
-        discovery_images=images)
-    if verbose:
-        informal_log("Created {} patches from {} images".format(len(paths), len(cd.dataset)), log_path, timestamp=True)
+        discovery_images=images,
+        save=True)
     
+    if verbose:
+        informal_log("Created patches from {} images".format(len(images)), log_path, timestamp=True)
+    
+    return
     # Load model
     informal_log("Loading model..", log_path, timestamp=True)
     model, features_model = load_features_model(
