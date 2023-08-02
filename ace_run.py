@@ -186,7 +186,7 @@ def main(n_samples,
         informal_log("Clustering to discover concepts...", log_path, timestamp=True)
     concept_centers, concept_image_data = cd.discover_concepts(
         min_patches=min_patches,
-        max_patches=max_patches
+        max_patches=max_patches,
         save=True)
     
     if verbose:

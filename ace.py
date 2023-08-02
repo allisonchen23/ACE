@@ -11,7 +11,7 @@ from datetime import datetime
 from functools import partial
 
 from ace_helpers import *
-from utils import ensure_dir, save_torch, informal_log, read_lists
+from utils import ensure_dir, save_torch, informal_log, read_lists, write_lists
 from visualizations import show_image, show_image_rows
 
 
@@ -71,31 +71,42 @@ class ConceptDiscovery(object):
                             #    method='slic',
                             #    discovery_images=None,
                             #    param_dict=None,
-                               save=True):
+                               save_patches=True):
         load_features = True
-        if not save:
-            load_features = False
-        
-        # Check if filepaths is saved
-        saved_filepaths_path = os.path.join(self.checkpoint_dir, 'filepaths.txt')
-        if not os.path.exists(saved_filepaths_path):
-            load_features = False
-        
-        # Compare saved filepaths to passed in filepaths
-        saved_filepaths = np.array(read_lists(saved_filepaths_path))
-        
-        if not (saved_filepaths == self.filepaths).all():
-            load_features = False
-        
-        # Check if number of directories in 'patches' == length of filepaths
         save_dir = os.path.join(self.checkpoint_dir, 'saved')
-        if not os.path.exists(save_dir):
-            load_features = False
-            informal_log("Save directory {} does not exist".format(save_dir), self.log_path, timestamp=True)
-        else:
-            n_discovery_img_dirs = len(os.listdir(save_dir))
-            if not n_discovery_img_dirs == len(self.filepaths):
+        features_restore_path = os.path.join(save_dir, 'features_index_numbers.pth' )
+        # Special checks for if we want to save the image patches
+        if save_patches:
+            saved_filepaths_path = os.path.join(self.checkpoint_dir, 'filepaths.txt')
+            if not os.path.exists(saved_filepaths_path):
                 load_features = False
+            
+            # Compare saved filepaths to passed in filepaths
+            saved_filepaths = np.array(read_lists(saved_filepaths_path))
+            
+            if not (saved_filepaths == self.filepaths).all():
+                load_features = False
+            
+            # Check if number of directories in 'patches' == length of filepaths
+            image_save_dir = os.path.join(save_dir, 'image_patches')
+            if not os.path.exists(image_save_dir):
+                load_features = False
+                informal_log("Save directory {} does not exist. Extracting features.".format(image_save_dir), self.log_path, timestamp=True)
+            else:
+                n_discovery_img_dirs = len(os.listdir(image_save_dir))
+                if not n_discovery_img_dirs == len(self.filepaths):
+                    load_features = False
+        else:
+            # Check if features exists already
+            
+            if os.path.exists(features_restore_path):
+                self._load_features(
+                    restore_path=features_restore_path
+                )
+
+                # If mismatch in number of discovery images from features and filepaths, load features
+                if len(np.unique(self.image_numbers)) != len(self.filepaths):
+                    load_features = True
         
         if not load_features:
             informal_log("Loading discovery images...", self.log_path, timestamp=True)
@@ -111,11 +122,11 @@ class ConceptDiscovery(object):
                 discovery_images=discovery_images
             )
         else:
-            # If we have gotten here, load the patches
+            # If we have gotten here, load the features
             informal_log("Loading features found at {}...".format(save_dir), self.log_path, timestamp=True)
+            
             self._load_features(
-                save_dir=save_dir,
-                filepaths=self.filepaths
+                restore_path=features_restore_path
             )
             #  self._load_patches(
             #         patches_dir=patches_dir,
@@ -163,31 +174,34 @@ class ConceptDiscovery(object):
         
 
     def _load_features(self,
-                       save_dir,
-                       filepaths):
-        features = []
-        image_numbers = []
-        patch_numbers = []
+                       restore_path):
+        # features = []
+        # image_numbers = []
+        # patch_numbers = []
         
-        # Load each patch data and add to appropriate list
-        for idx, _ in tqdm(enumerate(filepaths)):
-            image_dir = os.path.join(save_dir, str(idx))
-            features_path = os.path.join(image_dir, 'features.pth')
-            cur_features = torch.load(features_path)
+        data = torch.load(restore_path)
+        self.features = data['features']
+        self.image_numbers = data['image_numbers']
+        self.patch_numbers = data['patch_numbers']
+        # # Load each patch data and add to appropriate list
+        # for idx, _ in tqdm(enumerate(filepaths)):
+        #     image_dir = os.path.join(save_dir, str(idx))
+        #     features_path = os.path.join(image_dir, 'features.pth')
+        #     cur_features = torch.load(features_path)
             
-            image_patch_numbers_path = os.path.join(image_dir, 'image_patch_numbers.pth')
-            image_patch_numbers = torch.load(image_patch_numbers_path)
-            cur_image_numbers = image_patch_numbers['image_numbers']
-            cur_patch_numbers = image_patch_numbers['patch_numbers']
+        #     image_patch_numbers_path = os.path.join(image_dir, 'image_patch_numbers.pth')
+        #     image_patch_numbers = torch.load(image_patch_numbers_path)
+        #     cur_image_numbers = image_patch_numbers['image_numbers']
+        #     cur_patch_numbers = image_patch_numbers['patch_numbers']
 
-            features.append(cur_features)
-            image_numbers.append(cur_image_numbers)
-            patch_numbers.append(cur_patch_numbers)
+        #     features.append(cur_features)
+        #     image_numbers.append(cur_image_numbers)
+        #     patch_numbers.append(cur_patch_numbers)
 
         # Concatenate lists
-        self.features = np.concatenate(features, axis=0)
-        self.image_numbers = np.concatenate(image_numbers, axis=0)
-        self.patch_numbers = np.concatenate(patch_numbers, axis=0)
+        # self.features = np.concatenate(features, axis=0)
+        # self.image_numbers = np.concatenate(image_numbers, axis=0)
+        # self.patch_numbers = np.concatenate(patch_numbers, axis=0)
 
     def _load_patches(self,
                       patches_dir,
@@ -227,6 +241,7 @@ class ConceptDiscovery(object):
         features = []
         image_numbers = []
         patch_numbers = []
+        image_save_paths = []
         if self.n_workers > 1:
             # TODO: implement multiprocessing version
             pass
@@ -251,51 +266,52 @@ class ConceptDiscovery(object):
                 superpixel_features = self.get_features(
                     dataset=image_superpixels
                 )
-                # superpixel_features = self.get_features(
-                #     features_model=self.features_model,
-                #     device=self.device,
-                #     batch_size=self.batch_size,
-                #     channel_mean=self.channel_mean,
-                #     dataset=image_superpixels
-                # )
+
                 features.append(superpixel_features)
                 image_numbers.append(cur_image_numbers)
                 patch_numbers.append(cur_patch_numbers)
                 if save:
-                    image_save_dir = os.path.join(save_dir, str(image_idx))
+                    image_save_dir = os.path.join(save_dir, 'image_patches', str(image_idx))
                     ensure_dir(image_save_dir)
                     # Save patches and superpixel patches
                     image_save_data = {
                         'superpixels': image_superpixels, 
                         'patches': image_patches
                     }
-                    # Save image and patch numbers
-                    image_patch_numbers = {
-                        'image_numbers': cur_image_numbers,
-                        'patch_numbers': cur_patch_numbers
-                    }
-
-                    datas = [
-                        image_save_data,
-                        image_patch_numbers,
-                        superpixel_features
-                    ]
-                    names = ['image_data', 'image_patch_numbers', 'features']
-                    self._save(
-                        datas=datas,
-                        names=names,
+                    image_save_path = self._save(
+                        datas=[image_save_data],
+                        names=['image_data'],
                         save_dir=image_save_dir,
                         overwrite=overwrite
-                    )
+                    )[0]
+                    image_save_paths.append(image_save_path)
 
                 if image_idx % 10 == 0:
                     informal_log("Created patches for {}/{} samples...".format(image_idx+1, n_images), 
                                      self.log_path, timestamp=True)
                     informal_log("Running total of {} patches created...".format(n_patches_total), 
                                      self.log_path, timestamp=True)
+        
         self.features = np.concatenate(features, axis=0)
         self.image_numbers = np.concatenate(image_numbers, axis=0)
         self.patch_numbers = np.concatenate(patch_numbers, axis=0)
+
+        # Save features, image number, and patch numbers
+        save_data = {
+            'features': self.features,
+            'image_numbers': self.image_numbers,
+            'patch_numbers': self.patch_numbers
+        }
+        save_path = self._save(
+            datas=[save_data],
+            names=['features_index_numbers'],
+            save_dir=save_dir,
+            overwrite=overwrite
+        )[0]
+        paths_save_path = os.path.join(save_dir, 'patch_paths.txt')
+        write_lists(image_save_paths, paths_save_path)
+        informal_log("Saved features, image numbers, and patches to {}".format(save_path),
+                        self.log_path, timestamp=True)
 
     def _save(self,
               datas,
@@ -303,13 +319,16 @@ class ConceptDiscovery(object):
               save_dir,
               overwrite=True):
         ensure_dir(save_dir)
+        save_paths = []
         for data, name in zip(datas, names):
-            save_torch(
+            save_path = save_torch(
                 data=data,
                 save_dir=save_dir,
                 name=name,
                 overwrite=overwrite
             )
+            save_paths.append(save_path)
+        return save_paths
 
     # def _create_patches_orig(self, 
     #                    method='slic', 
@@ -582,16 +601,16 @@ class ConceptDiscovery(object):
                                               Image.BICUBIC)).astype(float) / 255
         return image_resized, patch
     
-    def save(self):
-        save_data = {
-            'dataset': self.dataset,
-            'image_numbers': self.image_numbers,
-            'patches': self.patches,
-            'features': self.features
-        }
-        save_path = os.path.join(self.checkpoint_dir, 'cd_data.pth')
-        torch.save(save_data, save_path)
-        print("Saved dataset, image numbers, and patches to {}".format(save_path))
+    # def save(self):
+    #     save_data = {
+    #         'dataset': self.dataset,
+    #         'image_numbers': self.image_numbers,
+    #         'patches': self.patches,
+    #         'features': self.features
+    #     }
+    #     save_path = os.path.join(self.checkpoint_dir, 'cd_data.pth')
+    #     torch.save(save_data, save_path)
+    #     print("Saved dataset, image numbers, and patches to {}".format(save_path))
         
     def restore(self, restore_path):
         restore_data = torch.load(restore_path)
@@ -674,7 +693,7 @@ class ConceptDiscovery(object):
         concept_centers, top_concept_image_data = self._filter_concepts(
             assignments=cluster_assignments,
             costs=cluster_costs,
-            centers=cluster_centers
+            centers=cluster_centers,
             min_patches=min_patches,
             max_patches=max_patches)
             # save_dir=save_dir)
