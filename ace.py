@@ -61,16 +61,9 @@ class ConceptDiscovery(object):
         self.device = device
         self.batch_size = batch_size
         self.channel_mean = channel_mean
-        # self.discovery_images = None
-        # self.dataset, self.image_numbers, self.patches =\
-        #     None, None, None
-        # self.features = None
+
         
     def create_or_load_features(self,
-                            #    filepaths=None,
-                            #    method='slic',
-                            #    discovery_images=None,
-                            #    param_dict=None,
                                save_patches=True):
         load_features = True
         save_dir = os.path.join(self.checkpoint_dir, 'saved')
@@ -98,7 +91,6 @@ class ConceptDiscovery(object):
                     load_features = False
         else:
             # Check if features exists already
-            
             if os.path.exists(features_restore_path):
                 self._load_features(
                     restore_path=features_restore_path
@@ -127,58 +119,10 @@ class ConceptDiscovery(object):
             
             self._load_features(
                 restore_path=features_restore_path
-            )
-            #  self._load_patches(
-            #         patches_dir=patches_dir,
-            #         filepaths=filepaths)
-    # def create_or_load_patches(self,
-    #                            filepaths=None,
-    #                            method='slic',
-    #                            discovery_images=None,
-    #                            param_dict=None,
-    #                            save=False):
-    #     load_patches = True
-    #     if not save:
-    #         load_patches = False
-        
-    #     # Check if filepaths is saved
-    #     saved_filepaths_path = os.path.join(self.checkpoint_dir, 'filepaths.txt')
-    #     if not os.path.exists(saved_filepaths_path):
-    #         load_patches = False
-        
-    #     # Compare saved filepaths to passed in filepaths
-    #     saved_filepaths = np.array(read_lists(saved_filepaths_path))
-        
-    #     if not (saved_filepaths == filepaths).all():
-    #         load_patches = False
-        
-    #     # Check if number of directories in 'patches' == length of filepaths
-    #     patches_dir = os.path.join(self.checkpoint_dir, 'patches')
-    #     n_patch_dirs = len(os.listdir(patches_dir))
-    #     if not n_patch_dirs == len(filepaths):
-    #         load_patches = False
-        
-    #     if not load_patches:
-    #         self._create_patches(
-    #             method=method,
-    #             discovery_images=discovery_images,
-    #             param_dict=param_dict,
-    #             save=save)
-    #     else:
-    #         # If we have gotten here, load the patches
-    #         informal_log("Loading patches found at {}...".format(patches_dir), self.log_path, timestamp=True)
-    #         self._load_patches(
-    #                 patches_dir=patches_dir,
-    #                 filepaths=filepaths)
-            
-        
+            ) 
 
     def _load_features(self,
                        restore_path):
-        # features = []
-        # image_numbers = []
-        # patch_numbers = []
-        
         data = torch.load(restore_path)
         self.features = data['features']
         self.image_numbers = data['image_numbers']
@@ -186,27 +130,27 @@ class ConceptDiscovery(object):
         self.image_start_idxs = data['image_start_idxs']
 
 
-    def _load_patches(self,
-                      patches_dir,
-                      filepaths):
-        dataset = []
-        image_numbers = []
-        patch_numbers = []
+    # def _load_patches(self,
+    #                   patches_dir,
+    #                   filepaths):
+    #     dataset = []
+    #     image_numbers = []
+    #     patch_numbers = []
         
-        # Load each patch data and add to appropriate list
-        for idx, _ in tqdm(enumerate(filepaths)):
-            patch_dir = os.path.join(patches_dir, str(idx))
-            patch_data_path = os.path.join(patch_dir, 'patches.pth')
-            patch_data = torch.load(patch_data_path)
-            dataset.append(patch_data['superpixels'])
-            image_numbers.append(patch_data['image_numbers'])
-            patch_numbers.append(patch_data['patch_numbers'])
+    #     # Load each patch data and add to appropriate list
+    #     for idx, _ in tqdm(enumerate(filepaths)):
+    #         patch_dir = os.path.join(patches_dir, str(idx))
+    #         patch_data_path = os.path.join(patch_dir, 'patches.pth')
+    #         patch_data = torch.load(patch_data_path)
+    #         dataset.append(patch_data['superpixels'])
+    #         image_numbers.append(patch_data['image_numbers'])
+    #         patch_numbers.append(patch_data['patch_numbers'])
 
-        # Concatenate lists
-        self.dataset = np.concatenate(dataset, axis=0)
-        self.image_numbers = np.concatenate(image_numbers, axis=0)
-        self.patch_numbers = np.concatenate(patch_numbers, axis=0)
-        print("Dataset shape: {}".format(self.dataset.shape))
+    #     # Concatenate lists
+    #     self.dataset = np.concatenate(dataset, axis=0)
+    #     self.image_numbers = np.concatenate(image_numbers, axis=0)
+    #     self.patch_numbers = np.concatenate(patch_numbers, axis=0)
+    #     print("Dataset shape: {}".format(self.dataset.shape))
         
     def _create_features(self,
                       # superpixel segmentation parameters
@@ -258,14 +202,17 @@ class ConceptDiscovery(object):
                 image_numbers.append(cur_image_numbers)
                 patch_numbers.append(cur_patch_numbers)
                 if save:
+                    # Lists to store paths to the superpixels and patches for this image
                     image_superpixel_paths = []
                     image_patch_paths = []
+
+                    # Create directories for superpixels and patches for this image
                     superpixel_save_dir = os.path.join(save_dir, str(image_idx), 'superpixels')
                     ensure_dir(superpixel_save_dir)
-
                     patch_save_dir = os.path.join(save_dir, str(image_idx), 'patches')
                     ensure_dir(patch_save_dir)
 
+                    # Save each superpixel and patch as png
                     for patch_idx, (superpixel, patch) in enumerate(zip(image_superpixels, image_patches)):
                         superpixel_save_path = os.path.join(superpixel_save_dir, 'superpixel_patch_{}.png'.format(patch_idx))
                         patch_save_path = os.path.join(patch_save_dir, 'patch_{}.png'.format(patch_idx))
@@ -278,18 +225,6 @@ class ConceptDiscovery(object):
                     # Append to list of lists of paths to images
                     superpixel_save_paths.append(image_superpixel_paths)
                     patch_save_paths.append(image_patch_paths)
-                    # Save patches and superpixel patches
-                    # image_save_data = {
-                    #     'superpixels': image_superpixels, 
-                    #     'patches': image_patches
-                    # }
-                    # image_save_path = self._save(
-                    #     datas=[image_save_data],
-                    #     names=['image_data'],
-                    #     save_dir=image_save_dir,
-                    #     overwrite=overwrite
-                    # )[0]
-                    # image_save_paths.append(image_save_path)
 
                 if image_idx % 10 == 0:
                     informal_log("Created patches for {}/{} samples...".format(image_idx+1, n_images), 
@@ -314,7 +249,10 @@ class ConceptDiscovery(object):
             save_dir=save_dir,
             overwrite=overwrite
         )[0]
-
+        informal_log("Saved features, image numbers, and patches to {}".format(save_path),
+                        self.log_path, timestamp=True)
+        
+        # Save paths to the superpixels and patches
         if save:
             self._save(
                 datas=[superpixel_save_paths, patch_save_paths],
@@ -322,11 +260,7 @@ class ConceptDiscovery(object):
                 save_dir=save_dir,
                 overwrite=overwrite
             )
-        # superpixel_patch
-        # patch_paths_save_path = os.path.join(save_dir, 'patch_paths.txt')
-        # write_lists(patch_save_path, paths_save_path)
-        informal_log("Saved features, image numbers, and patches to {}".format(save_path),
-                        self.log_path, timestamp=True)
+        
 
     def _save(self,
               datas,
@@ -344,165 +278,6 @@ class ConceptDiscovery(object):
             )
             save_paths.append(save_path)
         return save_paths
-
-    # def _create_patches_orig(self, 
-    #                    method='slic', 
-    #                    discovery_images=None,
-    #                    param_dict=None,
-    #                    save=False,
-    #                    features_model=None,
-    #                    device=None,
-    #                    batch_size=256,
-    #                    channel_mean=True):
-    #     """Creates a set of image patches using superpixel methods.
-
-    #     This method takes in the concept discovery images and transforms it to a
-    #     dataset made of the patches of those images.
-
-    #     Args:
-    #     method: The superpixel method used for creating image patches. One of
-    #     'slic', 'watershed', 'quickshift', 'felzenszwalb'.
-    #     discovery_images: Images used for creating patches. If None, the images in
-    #     the target class folder are used.
-
-    #     param_dict: Contains parameters of the superpixel method used in the form
-    #     of {'param1':[a,b,...], 'param2':[z,y,x,...], ...}. For instance
-    #     {'n_segments':[15,50,80], 'compactness':[10,10,10]} for slic
-    #     method.
-    #     """
-        
-    #     if save:
-    #         save_dir = os.path.join(self.checkpoint_dir, 'patches')
-    #         ensure_dir(save_dir)
-    #     if param_dict is None:
-    #         param_dict = {}
-    #     dataset, image_numbers, patch_numbers, patches = [], [], [], []
-    #     if discovery_images is None:
-    #         raise ValueError("Must pass in np.array for discovery_images. Received {}".format(
-    #             type(discovery_images)))
-    #     else:
-    #         self.discovery_images = discovery_images
-        
-    #     if self.n_workers:
-    #         idx_imgs = [(idx, image) for idx, image in enumerate(self.discovery_images)]
-    #         # pool = multiprocessing.Pool(self.n_workers)
-    #         pool = multiprocessing.get_context("forkserver").Pool(self.n_workers)
-    #         partial_fn = partial(self._return_superpixels, method=method, param_dict=param_dict)
-    #         # outputs = pool.map(
-    #         #     lambda img: self._return_superpixels(img, method, param_dict),
-    #         #     idx_imgs)
-    #         outputs = []
-    #         n_completed = 0
-    #         # for output in pool.imap_unordered(
-    #         #     lambda idx_img: self._return_superpixels(idx_img, method, param_dict),
-    #         #     idx_imgs):
-    #         for output in pool.imap_unordered(
-    #             partial_fn,
-    #             idx_imgs):
-    #             if save:
-    #                 fn, image_superpixels, image_patches = output
-    #                 image_save_dir = os.path.join(save_dir, str(fn))
-    #                 ensure_dir(image_save_dir)
-    #                 cur_image_numbers = np.array([fn for i in range(len(image_superpixels))])
-    #                 cur_patch_numbers = np.array([i for i in range(len(image_superpixels))])
-                    
-    #                 save_data = {
-    #                     'superpixels': image_superpixels,
-    #                     'patches': image_patches,
-    #                     'image_numbers': cur_image_numbers,
-    #                     'patch_numbers': cur_patch_numbers
-    #                 }
-    #                 save_torch(
-    #                     data=save_data,
-    #                     save_dir=image_save_dir,
-    #                     name='patches',
-    #                     overwrite=True)
-                    
-    #             else:
-    #                 outputs.append(output)
-                    
-                    
-    #             n_completed += 1
-    #             if n_completed % self.n_workers == 0 and self.verbose:
-    #                 informal_log("Created patches for {}/{} samples...".format(n_completed, len(self.discovery_images)), self.log_path, timestamp=True)
-                                 
-    #         if not save:
-    #             for _, sp_outputs in enumerate(outputs):
-    #                 idx, image_superpixels, image_patches = sp_outputs
-    #                 for superpixel, patch in zip(image_superpixels, image_patches):
-    #                     dataset.append(superpixel)
-    #                     patches.append(patch)
-    #                     image_numbers.append(idx)
-    #     else:
-    #         n_images = len(self.discovery_images)
-    #         n_patches = 0
-    #         for fn, img in tqdm(enumerate(self.discovery_images)):
-    #             _, image_superpixels, image_patches = self._return_superpixels(
-    #                 (fn, img), method, param_dict)
-    #             n_patches += len(image_superpixels)
-    #             cur_image_numbers = np.array([fn for i in range(len(image_superpixels))])
-    #             cur_patch_numbers = np.array([i for i in range(len(image_superpixels))])
-                
-    #             # Get features for this image's superpixel patches
-    #             superpixel_features = self.get_features(
-    #                 features_model=features_model,
-    #                 device=device,
-    #                 batch_size=batch_size,
-    #                 channel_mean=channel_mean,
-    #                 dataset=image_superpixels)
-    #             if save:
-    #                 image_save_dir = os.path.join(save_dir, str(fn))
-    #                 ensure_dir(image_save_dir)
-    #                 image_save_data = {
-    #                     'superpixels': image_superpixels, 
-    #                     'patches': image_patches
-    #                 }
-    #                 image_patch_numbers = {
-    #                     'image_numbers': cur_image_numbers,
-    #                     'patch_numbers': cur_patch_numbers
-    #                 }
-    #                 save_torch(
-    #                     data=image_save_data,
-    #                     save_dir=image_save_dir,
-    #                     name='image_patches',
-    #                     overwrite=True)
-    #                 save_torch(
-    #                     data=image_patch_numbers,
-    #                     save_dir=image_save_dir,
-    #                     name='image_patch_numbers',
-    #                     overwrite=True)
-    #                 save_torch(
-    #                     data=superpixel_features,
-    #                     save_dir=image_save_dir,
-    #                     name='features',
-    #                     overwrite=True)
-    #                 # dataset.append(image_superpixels)
-    #                 # image_numbers.append(cur_image_numbers)
-    #                 # patch_numbers.append(cur_patch_numbers)
-    #             else: 
-    #                 # for superpixel, patch in zip(image_superpixels, image_patches):
-    #                 #     dataset.append(superpixel)
-    #                 #     patches.append(patch)
-    #                 #     image_numbers.append(fn)
-    #                 dataset.append(image_superpixels)
-    #                 patches.append(image_patches)
-    #                 image_numbers.append(cur_image_numbers)
-    #                 patch_numbers.append(cur_patch_numbers)
-    #             if fn % 10 == 0:
-    #                 informal_log("Created patches for {}/{} samples...".format(fn+1, n_images), 
-    #                                  self.log_path, timestamp=True)
-    #                 informal_log("Running total of {} patches created...".format(n_patches), 
-    #                                  self.log_path, timestamp=True)
-    #     if save:
-    #         pass
-    #         # self.dataset = np.concatenate(dataset, axis=0)
-    #         # self.image_numbers = np.concatenate(image_numbers, axis=0)
-    #         # self.patch_numbers = np.concatenate(patch_numbers, axis=0)
-    #     else:
-    #         self.dataset, self.image_numbers, self.patches =\
-    #         np.concatenate(dataset, axis=0), np.concatenate(image_numbers, axis=0), np.concatenate(patches, axis=0)
-    #     # assert len(self.dataset.shape) == 4
-    #     # assert self.dataset.shape[0] == self.image_numbers.shape[0]
 
     def _return_superpixels(self, index_img, method='slic',
               param_dict=None):
@@ -615,57 +390,36 @@ class ConceptDiscovery(object):
         image_resized = np.array(image.resize(self.image_shape,
                                               Image.BICUBIC)).astype(float) / 255
         return image_resized, patch
-    
-    # def save(self):
-    #     save_data = {
-    #         'dataset': self.dataset,
-    #         'image_numbers': self.image_numbers,
-    #         'patches': self.patches,
-    #         'features': self.features
-    #     }
-    #     save_path = os.path.join(self.checkpoint_dir, 'cd_data.pth')
-    #     torch.save(save_data, save_path)
-    #     print("Saved dataset, image numbers, and patches to {}".format(save_path))
-        
-    def restore(self, restore_path):
-        restore_data = torch.load(restore_path)
-        if restore_data['dataset'] is not None:
-            self.dataset = restore_data['dataset']
-        if restore_data['image_numbers'] is not None:
-            self.image_numbers = restore_data['image_numbers']
-        if restore_data['patches'] is not None:
-            self.patches = restore_data['patches']
-        if restore_data['features'] is not None:
-            self.features = restore_data['features']
+      
+    # def restore(self, restore_path):
+    #     restore_data = torch.load(restore_path)
+    #     if restore_data['dataset'] is not None:
+    #         self.dataset = restore_data['dataset']
+    #     if restore_data['image_numbers'] is not None:
+    #         self.image_numbers = restore_data['image_numbers']
+    #     if restore_data['patches'] is not None:
+    #         self.patches = restore_data['patches']
+    #     if restore_data['features'] is not None:
+    #         self.features = restore_data['features']
             
-    def print_shapes(self):
-        if self.dataset is not None:
-            print("Dataset (superpixel) shape: {}".format(self.dataset.shape))
-        if self.image_numbers is not None:
-            print("Image numbers shape: {}".format(self.image_numbers.shape))
-        if self.patches is not None:
-            print("Patches shape: {}".format(self.patches.shape))
-        if self.features is not None:
-            print("Features shape: {}".format(self.features.shape))
+    # def print_shapes(self):
+    #     if self.dataset is not None:
+    #         print("Dataset (superpixel) shape: {}".format(self.dataset.shape))
+    #     if self.image_numbers is not None:
+    #         print("Image numbers shape: {}".format(self.image_numbers.shape))
+    #     if self.patches is not None:
+    #         print("Patches shape: {}".format(self.patches.shape))
+    #     if self.features is not None:
+    #         print("Features shape: {}".format(self.features.shape))
             
     def get_features(self,
                      dataset):
-                    #  features_model,
-                    #  device,
-                    #  batch_size=256,
-                    #  channel_mean=True,
-                    #  dataset=None):
         features = []
         
         self.features_model.eval()
         features_model = self.features_model.to(self.device)
-        # if dataset is None:
-        #     if self.dataset is None:
-        #         raise ValueError("No dataset passed in and self.dataset is None. First run cd.create_patches()")
-        #     dataset = self.dataset
-        #     set_self_features = True
-        # else:
-        #     set_self_features = False
+
+        # Forward data through model in batches
         n_batches = int(dataset.shape[0] / self.batch_size) + 1
         with torch.no_grad():
             for batch_idx in tqdm(range(n_batches)):
@@ -685,9 +439,7 @@ class ConceptDiscovery(object):
         else: 
             features = np.reshape(features, [features.shape[0], -1])
         assert features.shape[0] == dataset.shape[0]
-        
-        # if set_self_features:
-        #     self.features = features
+
         return features
         
     
@@ -697,8 +449,6 @@ class ConceptDiscovery(object):
                           save=False):
         
         cluster_assignments, cluster_costs, cluster_centers = self._cluster_features(
-            # cluster_params=self.cluster_params,
-            # cluster_method=self.cluster_method,
             features=self.features)
         
         # If for some reason cluster_centers is 1 x C x D, squeeze it to be C x D
@@ -723,15 +473,11 @@ class ConceptDiscovery(object):
             )[0]
             informal_log("Saved which image/patches belong to which concept to {}".format(save_path),
                          self.log_path, timestamp=True)
-            # self._save_concept_image_data(
-            #     concept_image_data=top_concept_image_data)
         
         return concept_centers, top_concept_index_data
             
     def _cluster_features(self,
-                        # cluster_params,
-                        # cluster_method='KM',
-                        features=None):
+                          features=None):
         if features is None:
             if self.features is None:
                 raise ValueError("No features passed in and self.features is None. First run cd.create_or_load_features()")
@@ -827,111 +573,89 @@ class ConceptDiscovery(object):
                 'patch_numbers': self.patch_numbers[concept_idxs]
             }
             top_concept_indexing_data.append(patch_index_data)
-        
-        # if save_dir is not None:
-        #     save_path = save_torch(
-        #             data=top_concept_image_data,
-        #             save_dir=save_dir,
-        #             name='concept_images',
-        #             overwrite=True)
-        #     if save_path:
-        #         print("Saved concept image data to {}".format(save_path))
+
             
         return concept_centers, top_concept_indexing_data
+            
+           
+    # def get_features_for_concepts(self,
+    #                               concepts,
+    #                                 #  model,
+    #                                 #  device,
+    #                                 #  concepts,
+    #                                 #  batch_size=256,
+    #                                 #  channel_mean=True,
+    #                                  save=True):
+    #     '''
+    #     Given a model and dictionary of concepts, get the features for the images 
+        
+    #     Arg(s):
+    #         model : torch.nn.Sequential
+    #             model where output is already the features
+    #         concepts : list[dict]
+    #             list of concepts where each concept is represented by a dictionary with the following keys:
+    #                 patches : N x 3 x H x W np.array
+    #                     images with patches in their true size and location
+    #                 image_numbers : list[N]
+    #                     Corresponding image numbers
+    #     Returns:
+    #         list[np.array] : list of feature vectors for each concept
+                    
+    #     '''
+    #     concept_features = []
+    #     for idx, concept in enumerate(concepts):
+    #         # images = concept['images']
+    #         concept_image_numbers = concept['image_numbers']
+    #         concept_patch_numbers = concept['patch_numbers']
+
+    #         # Get list of indices to get features for this concept
+    #         feature_idxs = []
+    #         # Obtain the idx that this image starts at
+    #         feature_idxs = np.array([self.image_start_idxs[img_num] for img_num in concept_image_numbers])
+    #         # Add offset based on patch
+    #         feature_idxs += concept_patch_numbers
+    #         # for img_num, patch_num in zip(concept_image_numbers, concept_patch_numbers):
+                
+    #         #     feature_idx = self.image_shape[img_num]
+                
+    #         #     feature_idx += patch_num
+    #         #     feature_idxs.append(feature_idx)
+
+    #         # features = self.get_features(
+    #         #     features_model=model,
+    #         #     device=device,
+    #         #     batch_size=batch_size,
+    #         #     channel_mean=channel_mean,
+    #         #     dataset=images)
+    #         features = self.features[feature_idxs]
+    #         concept['features'] = features
+    #         concept_features.append(concept)
+            
+    #     if save:
+    #         # self._save_concept_features(
+    #         #     concept_features=concept_features)
+    #         concept_save_dir = os.path.join(self.checkpoint_dir, 'concepts')
+    #         save_path = self._save(
+    #             datas=[concept_features],
+    #             names=['concept_features'],
+    #             save_dir=concept_save_dir,
+    #             overwrite=True
+    #         )[0]
+    #         informal_log("Saved features to each concept in a list to {}".format(save_path),
+    #                      self.log_path, timestamp=True)
+            
+    #     return concept_features
     
-    # def _save_concept_image_data(self, 
-    #                              concept_image_data):
+    # def _save_concept_features(self, 
+    #                            concept_features):
     #     concepts_save_dir = os.path.join(self.checkpoint_dir, 'concepts')
-    #     n_items = len(concept_image_data)
-    #     for concept_idx, image_data in tqdm(enumerate(concept_image_data), total=n_items):
+    #     n_items = len(concept_features)
+    #     for concept_idx, features in tqdm(enumerate(concept_features), total=n_items):
     #         cur_concept_save_dir = os.path.join(concepts_save_dir, 'concept_{}'.format(concept_idx))
     #         ensure_dir(cur_concept_save_dir)
             
     #         save_path = save_torch(
-    #             data=image_data,
+    #             data=features,
     #             save_dir=cur_concept_save_dir,
-    #             name='image_data'.format(concept_idx),
+    #             name='features'.format(concept_idx),
     #             overwrite=True)
-            
-           
-    def get_features_for_concepts(self,
-                                  concepts,
-                                    #  model,
-                                    #  device,
-                                    #  concepts,
-                                    #  batch_size=256,
-                                    #  channel_mean=True,
-                                     save=True):
-        '''
-        Given a model and dictionary of concepts, get the features for the images 
-        
-        Arg(s):
-            model : torch.nn.Sequential
-                model where output is already the features
-            concepts : list[dict]
-                list of concepts where each concept is represented by a dictionary with the following keys:
-                    patches : N x 3 x H x W np.array
-                        images with patches in their true size and location
-                    image_numbers : list[N]
-                        Corresponding image numbers
-        Returns:
-            list[np.array] : list of feature vectors for each concept
-                    
-        '''
-        concept_features = []
-        for idx, concept in enumerate(concepts):
-            # images = concept['images']
-            concept_image_numbers = concept['image_numbers']
-            concept_patch_numbers = concept['patch_numbers']
-
-            # Get list of indices to get features for this concept
-            feature_idxs = []
-            # Obtain the idx that this image starts at
-            feature_idxs = np.array([self.image_start_idxs[img_num] for img_num in concept_image_numbers])
-            # Add offset based on patch
-            feature_idxs += concept_patch_numbers
-            # for img_num, patch_num in zip(concept_image_numbers, concept_patch_numbers):
-                
-            #     feature_idx = self.image_shape[img_num]
-                
-            #     feature_idx += patch_num
-            #     feature_idxs.append(feature_idx)
-
-            # features = self.get_features(
-            #     features_model=model,
-            #     device=device,
-            #     batch_size=batch_size,
-            #     channel_mean=channel_mean,
-            #     dataset=images)
-            features = self.features[feature_idxs]
-            concept['features'] = features
-            concept_features.append(concept)
-            
-        if save:
-            # self._save_concept_features(
-            #     concept_features=concept_features)
-            concept_save_dir = os.path.join(self.checkpoint_dir, 'concepts')
-            save_path = self._save(
-                datas=[concept_features],
-                names=['concept_features'],
-                save_dir=concept_save_dir,
-                overwrite=True
-            )[0]
-            informal_log("Saved features to each concept in a list to {}".format(save_path),
-                         self.log_path, timestamp=True)
-            
-        return concept_features
-    
-    def _save_concept_features(self, 
-                               concept_features):
-        concepts_save_dir = os.path.join(self.checkpoint_dir, 'concepts')
-        n_items = len(concept_features)
-        for concept_idx, features in tqdm(enumerate(concept_features), total=n_items):
-            cur_concept_save_dir = os.path.join(concepts_save_dir, 'concept_{}'.format(concept_idx))
-            ensure_dir(cur_concept_save_dir)
-            
-            save_path = save_torch(
-                data=features,
-                save_dir=cur_concept_save_dir,
-                name='features'.format(concept_idx),
-                overwrite=True)

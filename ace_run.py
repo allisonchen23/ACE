@@ -55,12 +55,10 @@ def main(n_samples,
          verbose=True):
     
     # Variables for CD
-    # n_samples = 160 # Chose this for 50 * n_classes; ACE chose 50 images per class
     data_path = 'data/full_ade20k_imagelabels.pth'
     save_dir = 'temp_save_{}'.format(n_samples)
     ensure_dir(save_dir)
     log_path = os.path.join(save_dir, 'log.txt')
-    
     
     seed = 0
     n_workers = 0
@@ -102,17 +100,6 @@ def main(n_samples,
     paths_save_path = os.path.join(save_dir, 'filepaths.txt')
     write_lists(paths, paths_save_path)
 
-    # images = load_images_from_files(
-    #     filenames=paths,
-    #     max_imgs=n_samples,
-    #     return_filenames=False,
-    #     do_shuffle=False,
-    #     run_parallel=False,
-    #     shape=image_shape)
-    # if verbose:
-    #     informal_log("Loaded {} images of shape {}".format(images.shape[0], images.shape[1:]),
-    #                 log_path, timestamp=True)
-    
     # Load model
     informal_log("Loading model..", log_path, timestamp=True)
     model, features_model = load_features_model(
@@ -145,39 +132,9 @@ def main(n_samples,
     if verbose: 
         informal_log("Obtaining superpixel patches and corresponding features...", log_path, timestamp=True)
     cd.create_or_load_features()
-    # cd.create_or_load_patches(
-    #     filepaths=paths,
-    #     method='slic',
-    #     param_dict=slic_params,
-    #     discovery_images=images,
-    #     save=True)
-    
-    # cd.create_patches(
-    #     method='slic',
-    #     param_dict=slic_params,
-    #     discovery_images=images,
-    #     save=True)
     
     if verbose:
         informal_log("Created patches & features from {} images".format(len(paths)), log_path, timestamp=True)
-    
-    # # Load model
-    # informal_log("Loading model..", log_path, timestamp=True)
-    # model, features_model = load_features_model(
-    #     arch=model_arch,
-    #     n_classes=n_classes,
-    #     device=device,
-    #     checkpoint_path=model_checkpoint_path)
-    
-    # if verbose:
-    #     informal_log("Obtaining features of patches...", log_path, timestamp=True)
-    # cd.get_features(
-    #     features_model=features_model,
-    #     device=device,
-    #     batch_size=batch_size)
-    # if verbose:
-    #     informal_log("Saving patches and features...", log_path, timestamp=True)
-    # cd.save()
     
     if n_samples > 10: 
         return
@@ -192,10 +149,7 @@ def main(n_samples,
     if verbose:
         informal_log("Obtaining features for samples in each concept", log_path, timestamp=True)
     concept_features = cd.get_features_for_concepts(
-        # model=features_model,
-        # device=device,
         concepts=concept_index_data,
-        # batch_size=batch_size,
         save=True)
     
 if __name__ == "__main__":
