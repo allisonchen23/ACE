@@ -84,6 +84,8 @@ def main(n_samples,
     cluster_param_dict = {
         'n_clusters': 25
     }
+    min_patches = 5
+    max_patches = 40
 
     # Load data paths
     ade20k_data = torch.load(data_path)
@@ -183,8 +185,8 @@ def main(n_samples,
     if verbose:
         informal_log("Clustering to discover concepts...", log_path, timestamp=True)
     concept_centers, concept_image_data = cd.discover_concepts(
-        cluster_params=cluster_param_dict,
-        cluster_method=cluster_method,
+        min_patches=min_patches,
+        max_patches=max_patches
         save=True)
     
     if verbose:

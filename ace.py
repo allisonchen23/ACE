@@ -228,6 +228,7 @@ class ConceptDiscovery(object):
         image_numbers = []
         patch_numbers = []
         if self.n_workers > 1:
+            # TODO: implement multiprocessing version
             pass
         else:
             n_patches_total = 0  # running log of # of patches
@@ -310,164 +311,164 @@ class ConceptDiscovery(object):
                 overwrite=overwrite
             )
 
-    def _create_patches_orig(self, 
-                       method='slic', 
-                       discovery_images=None,
-                       param_dict=None,
-                       save=False,
-                       features_model=None,
-                       device=None,
-                       batch_size=256,
-                       channel_mean=True):
-        """Creates a set of image patches using superpixel methods.
+    # def _create_patches_orig(self, 
+    #                    method='slic', 
+    #                    discovery_images=None,
+    #                    param_dict=None,
+    #                    save=False,
+    #                    features_model=None,
+    #                    device=None,
+    #                    batch_size=256,
+    #                    channel_mean=True):
+    #     """Creates a set of image patches using superpixel methods.
 
-        This method takes in the concept discovery images and transforms it to a
-        dataset made of the patches of those images.
+    #     This method takes in the concept discovery images and transforms it to a
+    #     dataset made of the patches of those images.
 
-        Args:
-        method: The superpixel method used for creating image patches. One of
-        'slic', 'watershed', 'quickshift', 'felzenszwalb'.
-        discovery_images: Images used for creating patches. If None, the images in
-        the target class folder are used.
+    #     Args:
+    #     method: The superpixel method used for creating image patches. One of
+    #     'slic', 'watershed', 'quickshift', 'felzenszwalb'.
+    #     discovery_images: Images used for creating patches. If None, the images in
+    #     the target class folder are used.
 
-        param_dict: Contains parameters of the superpixel method used in the form
-        of {'param1':[a,b,...], 'param2':[z,y,x,...], ...}. For instance
-        {'n_segments':[15,50,80], 'compactness':[10,10,10]} for slic
-        method.
-        """
+    #     param_dict: Contains parameters of the superpixel method used in the form
+    #     of {'param1':[a,b,...], 'param2':[z,y,x,...], ...}. For instance
+    #     {'n_segments':[15,50,80], 'compactness':[10,10,10]} for slic
+    #     method.
+    #     """
         
-        if save:
-            save_dir = os.path.join(self.checkpoint_dir, 'patches')
-            ensure_dir(save_dir)
-        if param_dict is None:
-            param_dict = {}
-        dataset, image_numbers, patch_numbers, patches = [], [], [], []
-        if discovery_images is None:
-            raise ValueError("Must pass in np.array for discovery_images. Received {}".format(
-                type(discovery_images)))
-        else:
-            self.discovery_images = discovery_images
+    #     if save:
+    #         save_dir = os.path.join(self.checkpoint_dir, 'patches')
+    #         ensure_dir(save_dir)
+    #     if param_dict is None:
+    #         param_dict = {}
+    #     dataset, image_numbers, patch_numbers, patches = [], [], [], []
+    #     if discovery_images is None:
+    #         raise ValueError("Must pass in np.array for discovery_images. Received {}".format(
+    #             type(discovery_images)))
+    #     else:
+    #         self.discovery_images = discovery_images
         
-        if self.n_workers:
-            idx_imgs = [(idx, image) for idx, image in enumerate(self.discovery_images)]
-            # pool = multiprocessing.Pool(self.n_workers)
-            pool = multiprocessing.get_context("forkserver").Pool(self.n_workers)
-            partial_fn = partial(self._return_superpixels, method=method, param_dict=param_dict)
-            # outputs = pool.map(
-            #     lambda img: self._return_superpixels(img, method, param_dict),
-            #     idx_imgs)
-            outputs = []
-            n_completed = 0
-            # for output in pool.imap_unordered(
-            #     lambda idx_img: self._return_superpixels(idx_img, method, param_dict),
-            #     idx_imgs):
-            for output in pool.imap_unordered(
-                partial_fn,
-                idx_imgs):
-                if save:
-                    fn, image_superpixels, image_patches = output
-                    image_save_dir = os.path.join(save_dir, str(fn))
-                    ensure_dir(image_save_dir)
-                    cur_image_numbers = np.array([fn for i in range(len(image_superpixels))])
-                    cur_patch_numbers = np.array([i for i in range(len(image_superpixels))])
+    #     if self.n_workers:
+    #         idx_imgs = [(idx, image) for idx, image in enumerate(self.discovery_images)]
+    #         # pool = multiprocessing.Pool(self.n_workers)
+    #         pool = multiprocessing.get_context("forkserver").Pool(self.n_workers)
+    #         partial_fn = partial(self._return_superpixels, method=method, param_dict=param_dict)
+    #         # outputs = pool.map(
+    #         #     lambda img: self._return_superpixels(img, method, param_dict),
+    #         #     idx_imgs)
+    #         outputs = []
+    #         n_completed = 0
+    #         # for output in pool.imap_unordered(
+    #         #     lambda idx_img: self._return_superpixels(idx_img, method, param_dict),
+    #         #     idx_imgs):
+    #         for output in pool.imap_unordered(
+    #             partial_fn,
+    #             idx_imgs):
+    #             if save:
+    #                 fn, image_superpixels, image_patches = output
+    #                 image_save_dir = os.path.join(save_dir, str(fn))
+    #                 ensure_dir(image_save_dir)
+    #                 cur_image_numbers = np.array([fn for i in range(len(image_superpixels))])
+    #                 cur_patch_numbers = np.array([i for i in range(len(image_superpixels))])
                     
-                    save_data = {
-                        'superpixels': image_superpixels,
-                        'patches': image_patches,
-                        'image_numbers': cur_image_numbers,
-                        'patch_numbers': cur_patch_numbers
-                    }
-                    save_torch(
-                        data=save_data,
-                        save_dir=image_save_dir,
-                        name='patches',
-                        overwrite=True)
+    #                 save_data = {
+    #                     'superpixels': image_superpixels,
+    #                     'patches': image_patches,
+    #                     'image_numbers': cur_image_numbers,
+    #                     'patch_numbers': cur_patch_numbers
+    #                 }
+    #                 save_torch(
+    #                     data=save_data,
+    #                     save_dir=image_save_dir,
+    #                     name='patches',
+    #                     overwrite=True)
                     
-                else:
-                    outputs.append(output)
+    #             else:
+    #                 outputs.append(output)
                     
                     
-                n_completed += 1
-                if n_completed % self.n_workers == 0 and self.verbose:
-                    informal_log("Created patches for {}/{} samples...".format(n_completed, len(self.discovery_images)), self.log_path, timestamp=True)
+    #             n_completed += 1
+    #             if n_completed % self.n_workers == 0 and self.verbose:
+    #                 informal_log("Created patches for {}/{} samples...".format(n_completed, len(self.discovery_images)), self.log_path, timestamp=True)
                                  
-            if not save:
-                for _, sp_outputs in enumerate(outputs):
-                    idx, image_superpixels, image_patches = sp_outputs
-                    for superpixel, patch in zip(image_superpixels, image_patches):
-                        dataset.append(superpixel)
-                        patches.append(patch)
-                        image_numbers.append(idx)
-        else:
-            n_images = len(self.discovery_images)
-            n_patches = 0
-            for fn, img in tqdm(enumerate(self.discovery_images)):
-                _, image_superpixels, image_patches = self._return_superpixels(
-                    (fn, img), method, param_dict)
-                n_patches += len(image_superpixels)
-                cur_image_numbers = np.array([fn for i in range(len(image_superpixels))])
-                cur_patch_numbers = np.array([i for i in range(len(image_superpixels))])
+    #         if not save:
+    #             for _, sp_outputs in enumerate(outputs):
+    #                 idx, image_superpixels, image_patches = sp_outputs
+    #                 for superpixel, patch in zip(image_superpixels, image_patches):
+    #                     dataset.append(superpixel)
+    #                     patches.append(patch)
+    #                     image_numbers.append(idx)
+    #     else:
+    #         n_images = len(self.discovery_images)
+    #         n_patches = 0
+    #         for fn, img in tqdm(enumerate(self.discovery_images)):
+    #             _, image_superpixels, image_patches = self._return_superpixels(
+    #                 (fn, img), method, param_dict)
+    #             n_patches += len(image_superpixels)
+    #             cur_image_numbers = np.array([fn for i in range(len(image_superpixels))])
+    #             cur_patch_numbers = np.array([i for i in range(len(image_superpixels))])
                 
-                # Get features for this image's superpixel patches
-                superpixel_features = self.get_features(
-                    features_model=features_model,
-                    device=device,
-                    batch_size=batch_size,
-                    channel_mean=channel_mean,
-                    dataset=image_superpixels)
-                if save:
-                    image_save_dir = os.path.join(save_dir, str(fn))
-                    ensure_dir(image_save_dir)
-                    image_save_data = {
-                        'superpixels': image_superpixels, 
-                        'patches': image_patches
-                    }
-                    image_patch_numbers = {
-                        'image_numbers': cur_image_numbers,
-                        'patch_numbers': cur_patch_numbers
-                    }
-                    save_torch(
-                        data=image_save_data,
-                        save_dir=image_save_dir,
-                        name='image_patches',
-                        overwrite=True)
-                    save_torch(
-                        data=image_patch_numbers,
-                        save_dir=image_save_dir,
-                        name='image_patch_numbers',
-                        overwrite=True)
-                    save_torch(
-                        data=superpixel_features,
-                        save_dir=image_save_dir,
-                        name='features',
-                        overwrite=True)
-                    # dataset.append(image_superpixels)
-                    # image_numbers.append(cur_image_numbers)
-                    # patch_numbers.append(cur_patch_numbers)
-                else: 
-                    # for superpixel, patch in zip(image_superpixels, image_patches):
-                    #     dataset.append(superpixel)
-                    #     patches.append(patch)
-                    #     image_numbers.append(fn)
-                    dataset.append(image_superpixels)
-                    patches.append(image_patches)
-                    image_numbers.append(cur_image_numbers)
-                    patch_numbers.append(cur_patch_numbers)
-                if fn % 10 == 0:
-                    informal_log("Created patches for {}/{} samples...".format(fn+1, n_images), 
-                                     self.log_path, timestamp=True)
-                    informal_log("Running total of {} patches created...".format(n_patches), 
-                                     self.log_path, timestamp=True)
-        if save:
-            pass
-            # self.dataset = np.concatenate(dataset, axis=0)
-            # self.image_numbers = np.concatenate(image_numbers, axis=0)
-            # self.patch_numbers = np.concatenate(patch_numbers, axis=0)
-        else:
-            self.dataset, self.image_numbers, self.patches =\
-            np.concatenate(dataset, axis=0), np.concatenate(image_numbers, axis=0), np.concatenate(patches, axis=0)
-        # assert len(self.dataset.shape) == 4
-        # assert self.dataset.shape[0] == self.image_numbers.shape[0]
+    #             # Get features for this image's superpixel patches
+    #             superpixel_features = self.get_features(
+    #                 features_model=features_model,
+    #                 device=device,
+    #                 batch_size=batch_size,
+    #                 channel_mean=channel_mean,
+    #                 dataset=image_superpixels)
+    #             if save:
+    #                 image_save_dir = os.path.join(save_dir, str(fn))
+    #                 ensure_dir(image_save_dir)
+    #                 image_save_data = {
+    #                     'superpixels': image_superpixels, 
+    #                     'patches': image_patches
+    #                 }
+    #                 image_patch_numbers = {
+    #                     'image_numbers': cur_image_numbers,
+    #                     'patch_numbers': cur_patch_numbers
+    #                 }
+    #                 save_torch(
+    #                     data=image_save_data,
+    #                     save_dir=image_save_dir,
+    #                     name='image_patches',
+    #                     overwrite=True)
+    #                 save_torch(
+    #                     data=image_patch_numbers,
+    #                     save_dir=image_save_dir,
+    #                     name='image_patch_numbers',
+    #                     overwrite=True)
+    #                 save_torch(
+    #                     data=superpixel_features,
+    #                     save_dir=image_save_dir,
+    #                     name='features',
+    #                     overwrite=True)
+    #                 # dataset.append(image_superpixels)
+    #                 # image_numbers.append(cur_image_numbers)
+    #                 # patch_numbers.append(cur_patch_numbers)
+    #             else: 
+    #                 # for superpixel, patch in zip(image_superpixels, image_patches):
+    #                 #     dataset.append(superpixel)
+    #                 #     patches.append(patch)
+    #                 #     image_numbers.append(fn)
+    #                 dataset.append(image_superpixels)
+    #                 patches.append(image_patches)
+    #                 image_numbers.append(cur_image_numbers)
+    #                 patch_numbers.append(cur_patch_numbers)
+    #             if fn % 10 == 0:
+    #                 informal_log("Created patches for {}/{} samples...".format(fn+1, n_images), 
+    #                                  self.log_path, timestamp=True)
+    #                 informal_log("Running total of {} patches created...".format(n_patches), 
+    #                                  self.log_path, timestamp=True)
+    #     if save:
+    #         pass
+    #         # self.dataset = np.concatenate(dataset, axis=0)
+    #         # self.image_numbers = np.concatenate(image_numbers, axis=0)
+    #         # self.patch_numbers = np.concatenate(patch_numbers, axis=0)
+    #     else:
+    #         self.dataset, self.image_numbers, self.patches =\
+    #         np.concatenate(dataset, axis=0), np.concatenate(image_numbers, axis=0), np.concatenate(patches, axis=0)
+    #     # assert len(self.dataset.shape) == 4
+    #     # assert self.dataset.shape[0] == self.image_numbers.shape[0]
 
     def _return_superpixels(self, index_img, method='slic',
               param_dict=None):
@@ -657,8 +658,8 @@ class ConceptDiscovery(object):
         
     
     def discover_concepts(self,
-                        #   cluster_params,
-                        #   cluster_method,
+                          min_patches=5,
+                          max_patches=40,
                           save=False):
         
         cluster_assignments, cluster_costs, cluster_centers = self._cluster_features(
@@ -673,7 +674,9 @@ class ConceptDiscovery(object):
         concept_centers, top_concept_image_data = self._filter_concepts(
             assignments=cluster_assignments,
             costs=cluster_costs,
-            centers=cluster_centers)
+            centers=cluster_centers
+            min_patches=min_patches,
+            max_patches=max_patches)
             # save_dir=save_dir)
         
         # Save image data
@@ -693,17 +696,17 @@ class ConceptDiscovery(object):
             features = self.features
             
         if self.cluster_method == 'KM':
-            n_clusters = self.cluster_params.pop('n_clusters', 25)
+            n_clusters = self.cluster_param_dict.pop('n_clusters', 25)
             kmeans = cluster.KMeans(
                 n_clusters,
                 random_state=self.seed)
             kmeans = kmeans.fit(features)
-            centers = kmeans.cluster_centers_
+            centers = kmeans.cluster_centers_  # C x D 
             
             # Calculate distance between each feature and each cluster
-            features = np.expand_dims(features, 1)  # N x 1 x D
-            centers = np.expand_dims(centers, 0) # 1 x C x D
-            distance = np.linalg.norm(features - centers, ord=2, axis=-1) # N x C matrix
+            features_expanded = np.expand_dims(features, 1)  # N x 1 x D
+            centers_expanded = np.expand_dims(centers, 0) # 1 x C x D
+            distance = np.linalg.norm(features_expanded - centers_expanded, ord=2, axis=-1) # N x C matrix
             
             # For each sample, get cluster assignment
             assignments = np.argmin(distance, -1)  # N-dim vector
