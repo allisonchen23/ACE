@@ -5,10 +5,14 @@ import torchvision
 from tqdm import tqdm
 import skimage.segmentation as segmentation
 import sklearn.cluster as cluster
+from sklearn import linear_model
+from sklearn.model_selection import train_test_split
 import multiprocessing
 from multiprocessing import get_context, set_start_method, get_start_method
 from datetime import datetime
 from functools import partial
+# from tcav import cav
+from cav import CAV
 
 from ace_helpers import *
 from utils import ensure_dir, save_torch, informal_log, read_lists, write_lists, save_image
@@ -207,9 +211,9 @@ class ConceptDiscovery(object):
                     image_patch_paths = []
 
                     # Create directories for superpixels and patches for this image
-                    superpixel_save_dir = os.path.join(save_dir, str(image_idx), 'superpixels')
+                    superpixel_save_dir = os.path.join(save_dir, 'image_patches', str(image_idx), 'superpixels')
                     ensure_dir(superpixel_save_dir)
-                    patch_save_dir = os.path.join(save_dir, str(image_idx), 'patches')
+                    patch_save_dir = os.path.join(save_dir, 'image_patches', str(image_idx), 'patches')
                     ensure_dir(patch_save_dir)
 
                     # Save each superpixel and patch as png
@@ -577,85 +581,149 @@ class ConceptDiscovery(object):
             
         return concept_centers, top_concept_indexing_data
             
-           
-    # def get_features_for_concepts(self,
-    #                               concepts,
-    #                                 #  model,
-    #                                 #  device,
-    #                                 #  concepts,
-    #                                 #  batch_size=256,
-    #                                 #  channel_mean=True,
-    #                                  save=True):
-    #     '''
-    #     Given a model and dictionary of concepts, get the features for the images 
+    def calculate_cavs(self,
+                       concepts,
+                       n_trials=20,
+                       min_acc=0.0):
+        keep_idxs = []
+        cavs = []
+        all_features = [concept['features'] for concept in concepts]
+        cav_activations, concept_names = self._format_activations(concepts=concepts)
+
+        cavs = CAV(
+            concepts=concept_names,
+            bottleneck='avgpool',
+            hparams={},
+        )
+        cavs.train(
+            acts=cav_activations
+        )
+        # flattened_activations, labels, labels2text = CAV._create_cav_training_set(
+        #     concept=concept_names,
+        #     bottleneck='avgpool',
+        #     acts=cav_activations)
         
-    #     Arg(s):
-    #         model : torch.nn.Sequential
-    #             model where output is already the features
-    #         concepts : list[dict]
-    #             list of concepts where each concept is represented by a dictionary with the following keys:
-    #                 patches : N x 3 x H x W np.array
-    #                     images with patches in their true size and location
-    #                 image_numbers : list[N]
-    #                     Corresponding image numbers
-    #     Returns:
-    #         list[np.array] : list of feature vectors for each concept
+        return
+        # np.random.seed(None)
+        # for concept_idx, concept in enumerate(concepts):
+        #     concept_features = concept['features']
+        #     n_concept_features = len(concept_features)
+        #     all_other_features = all_features[:concept_idx] + all_features[concept_idx+1:]
+        #     # Assert no overlap between positive and negative features
+        #     assert len(set(concept_features).intersection(set(all_other_features))) == 0
+
+        #     all_other_features = np.concatenate(all_other_features, axis=0)
+        #     lm = linear_model.LogisticRegression()
+
+    def _format_activations(self, concepts):
+        '''
+        Given concepts as a list of dictionaries representing each concept, reformat in
+        format desired by cav
+
+        Arg(s):
+            concepts : list[dict] where each dict has the keys 
+                {
+                    'features': N x D np.array,
+                    'image_numbers': N np.array,
+                    'patch_numbers': N np.array
+            }   
+
+        Returns:
+         acts :  dictionary contains activations of concepts in each bottlenecks
+          e.g., acts[concept][bottleneck]
+
+        '''
+
+        acts = {}
+        concept_names = []
+        for concept_idx, concept in enumerate(concepts):
+            concept_dict = {}
+            activations = concept['features']
+            concept_name = 'concept_{}'.format(concept_idx)
+            acts[concept_name] = {
+                'avgpool': activations
+            }
+            concept_names.append(concept_name)
+        return acts, concept_names
+            
+    def get_features_for_concepts(self,
+                                  concepts,
+                                    #  model,
+                                    #  device,
+                                    #  concepts,
+                                    #  batch_size=256,
+                                    #  channel_mean=True,
+                                     save=True):
+        '''
+        Given a model and dictionary of concepts, get the features for the images 
+        
+        Arg(s):
+            model : torch.nn.Sequential
+                model where output is already the features
+            concepts : list[dict]
+                list of concepts where each concept is represented by a dictionary with the following keys:
+                    patches : N x 3 x H x W np.array
+                        images with patches in their true size and location
+                    image_numbers : list[N]
+                        Corresponding image numbers
+        Returns:
+            list[np.array] : list of feature vectors for each concept
                     
-    #     '''
-    #     concept_features = []
-    #     for idx, concept in enumerate(concepts):
-    #         # images = concept['images']
-    #         concept_image_numbers = concept['image_numbers']
-    #         concept_patch_numbers = concept['patch_numbers']
+        '''
+        concept_features = []
+        for idx, concept in enumerate(concepts):
+            # images = concept['images']
+            concept_image_numbers = concept['image_numbers']
+            concept_patch_numbers = concept['patch_numbers']
 
-    #         # Get list of indices to get features for this concept
-    #         feature_idxs = []
-    #         # Obtain the idx that this image starts at
-    #         feature_idxs = np.array([self.image_start_idxs[img_num] for img_num in concept_image_numbers])
-    #         # Add offset based on patch
-    #         feature_idxs += concept_patch_numbers
-    #         # for img_num, patch_num in zip(concept_image_numbers, concept_patch_numbers):
+            # Get list of indices to get features for this concept
+            feature_idxs = []
+            # Obtain the idx that this image starts at
+            feature_idxs = np.array([self.image_start_idxs[img_num] for img_num in concept_image_numbers])
+            # Add offset based on patch
+            feature_idxs += concept_patch_numbers
+            # for img_num, patch_num in zip(concept_image_numbers, concept_patch_numbers):
                 
-    #         #     feature_idx = self.image_shape[img_num]
+            #     feature_idx = self.image_shape[img_num]
                 
-    #         #     feature_idx += patch_num
-    #         #     feature_idxs.append(feature_idx)
+            #     feature_idx += patch_num
+            #     feature_idxs.append(feature_idx)
 
-    #         # features = self.get_features(
-    #         #     features_model=model,
-    #         #     device=device,
-    #         #     batch_size=batch_size,
-    #         #     channel_mean=channel_mean,
-    #         #     dataset=images)
-    #         features = self.features[feature_idxs]
-    #         concept['features'] = features
-    #         concept_features.append(concept)
+            # features = self.get_features(
+            #     features_model=model,
+            #     device=device,
+            #     batch_size=batch_size,
+            #     channel_mean=channel_mean,
+            #     dataset=images)
+            features = self.features[feature_idxs]
+            concept['features'] = features
+            concept_features.append(concept)
             
-    #     if save:
-    #         # self._save_concept_features(
-    #         #     concept_features=concept_features)
-    #         concept_save_dir = os.path.join(self.checkpoint_dir, 'concepts')
-    #         save_path = self._save(
-    #             datas=[concept_features],
-    #             names=['concept_features'],
-    #             save_dir=concept_save_dir,
-    #             overwrite=True
-    #         )[0]
-    #         informal_log("Saved features to each concept in a list to {}".format(save_path),
-    #                      self.log_path, timestamp=True)
+        if save:
+            # self._save_concept_features(
+            #     concept_features=concept_features)
+            concept_save_dir = os.path.join(self.checkpoint_dir, 'concepts')
+            save_path = self._save(
+                datas=[concept_features],
+                names=['concept_features'],
+                save_dir=concept_save_dir,
+                overwrite=True
+            )[0]
+            informal_log("Saved features to each concept in a list to {}".format(save_path),
+                         self.log_path, timestamp=True)
             
-    #     return concept_features
+        return concept_features
     
-    # def _save_concept_features(self, 
-    #                            concept_features):
-    #     concepts_save_dir = os.path.join(self.checkpoint_dir, 'concepts')
-    #     n_items = len(concept_features)
-    #     for concept_idx, features in tqdm(enumerate(concept_features), total=n_items):
-    #         cur_concept_save_dir = os.path.join(concepts_save_dir, 'concept_{}'.format(concept_idx))
-    #         ensure_dir(cur_concept_save_dir)
+    def _save_concept_features(self, 
+                               concept_features):
+        concepts_save_dir = os.path.join(self.checkpoint_dir, 'concepts')
+        n_items = len(concept_features)
+        for concept_idx, features in tqdm(enumerate(concept_features), total=n_items):
+            cur_concept_save_dir = os.path.join(concepts_save_dir, 'concept_{}'.format(concept_idx))
+            ensure_dir(cur_concept_save_dir)
             
-    #         save_path = save_torch(
-    #             data=features,
-    #             save_dir=cur_concept_save_dir,
-    #             name='features'.format(concept_idx),
-    #             overwrite=True)
+            save_path = save_torch(
+                data=features,
+                save_dir=cur_concept_save_dir,
+                name='features'.format(concept_idx),
+                overwrite=True)

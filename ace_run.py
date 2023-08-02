@@ -152,6 +152,11 @@ def main(n_samples,
         concepts=concept_index_data,
         save=True)
     
+    # Calculate CAVs for each concept
+    cd.calculate_cavs(
+        concepts=concept_features)
+    
+    
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--n_samples', required=True, type=int)
