@@ -11,7 +11,7 @@ from datetime import datetime
 from functools import partial
 
 from ace_helpers import *
-from utils import ensure_dir, save_torch, informal_log, read_lists, write_lists
+from utils import ensure_dir, save_torch, informal_log, read_lists, write_lists, save_image
 from visualizations import show_image, show_image_rows
 
 
@@ -183,25 +183,8 @@ class ConceptDiscovery(object):
         self.features = data['features']
         self.image_numbers = data['image_numbers']
         self.patch_numbers = data['patch_numbers']
-        # # Load each patch data and add to appropriate list
-        # for idx, _ in tqdm(enumerate(filepaths)):
-        #     image_dir = os.path.join(save_dir, str(idx))
-        #     features_path = os.path.join(image_dir, 'features.pth')
-        #     cur_features = torch.load(features_path)
-            
-        #     image_patch_numbers_path = os.path.join(image_dir, 'image_patch_numbers.pth')
-        #     image_patch_numbers = torch.load(image_patch_numbers_path)
-        #     cur_image_numbers = image_patch_numbers['image_numbers']
-        #     cur_patch_numbers = image_patch_numbers['patch_numbers']
+        self.image_start_idxs = data['image_start_idxs']
 
-        #     features.append(cur_features)
-        #     image_numbers.append(cur_image_numbers)
-        #     patch_numbers.append(cur_patch_numbers)
-
-        # Concatenate lists
-        # self.features = np.concatenate(features, axis=0)
-        # self.image_numbers = np.concatenate(image_numbers, axis=0)
-        # self.patch_numbers = np.concatenate(patch_numbers, axis=0)
 
     def _load_patches(self,
                       patches_dir,
@@ -241,13 +224,17 @@ class ConceptDiscovery(object):
         features = []
         image_numbers = []
         patch_numbers = []
-        image_save_paths = []
+        superpixel_save_paths = []
+        patch_save_paths = []
+        image_start_idxs = {}
         if self.n_workers > 1:
             # TODO: implement multiprocessing version
             pass
         else:
             n_patches_total = 0  # running log of # of patches
             for image_idx, image in tqdm(enumerate(discovery_images)):
+                # Store which element is the start of this image
+                image_start_idxs[image_idx] = n_patches_total
                 # Call _return_superpixels
                 _, image_superpixels, image_patches = self._return_superpixels(
                     index_img=(image_idx, image),
@@ -271,20 +258,38 @@ class ConceptDiscovery(object):
                 image_numbers.append(cur_image_numbers)
                 patch_numbers.append(cur_patch_numbers)
                 if save:
-                    image_save_dir = os.path.join(save_dir, 'image_patches', str(image_idx))
-                    ensure_dir(image_save_dir)
+                    image_superpixel_paths = []
+                    image_patch_paths = []
+                    superpixel_save_dir = os.path.join(save_dir, str(image_idx), 'superpixels')
+                    ensure_dir(superpixel_save_dir)
+
+                    patch_save_dir = os.path.join(save_dir, str(image_idx), 'patches')
+                    ensure_dir(patch_save_dir)
+
+                    for patch_idx, (superpixel, patch) in enumerate(zip(image_superpixels, image_patches)):
+                        superpixel_save_path = os.path.join(superpixel_save_dir, 'superpixel_patch_{}.png'.format(patch_idx))
+                        patch_save_path = os.path.join(patch_save_dir, 'patch_{}.png'.format(patch_idx))
+
+                        save_image(superpixel, superpixel_save_path)
+                        save_image(patch, patch_save_path)
+                        image_superpixel_paths.append(superpixel_save_path)
+                        image_patch_paths.append(patch_save_path)
+
+                    # Append to list of lists of paths to images
+                    superpixel_save_paths.append(image_superpixel_paths)
+                    patch_save_paths.append(image_patch_paths)
                     # Save patches and superpixel patches
-                    image_save_data = {
-                        'superpixels': image_superpixels, 
-                        'patches': image_patches
-                    }
-                    image_save_path = self._save(
-                        datas=[image_save_data],
-                        names=['image_data'],
-                        save_dir=image_save_dir,
-                        overwrite=overwrite
-                    )[0]
-                    image_save_paths.append(image_save_path)
+                    # image_save_data = {
+                    #     'superpixels': image_superpixels, 
+                    #     'patches': image_patches
+                    # }
+                    # image_save_path = self._save(
+                    #     datas=[image_save_data],
+                    #     names=['image_data'],
+                    #     save_dir=image_save_dir,
+                    #     overwrite=overwrite
+                    # )[0]
+                    # image_save_paths.append(image_save_path)
 
                 if image_idx % 10 == 0:
                     informal_log("Created patches for {}/{} samples...".format(image_idx+1, n_images), 
@@ -295,12 +300,13 @@ class ConceptDiscovery(object):
         self.features = np.concatenate(features, axis=0)
         self.image_numbers = np.concatenate(image_numbers, axis=0)
         self.patch_numbers = np.concatenate(patch_numbers, axis=0)
-
+        self.image_start_idxs = image_start_idxs
         # Save features, image number, and patch numbers
         save_data = {
             'features': self.features,
             'image_numbers': self.image_numbers,
-            'patch_numbers': self.patch_numbers
+            'patch_numbers': self.patch_numbers,
+            'image_start_idxs': self.image_start_idxs
         }
         save_path = self._save(
             datas=[save_data],
@@ -308,8 +314,17 @@ class ConceptDiscovery(object):
             save_dir=save_dir,
             overwrite=overwrite
         )[0]
-        paths_save_path = os.path.join(save_dir, 'patch_paths.txt')
-        write_lists(image_save_paths, paths_save_path)
+
+        if save:
+            self._save(
+                datas=[superpixel_save_paths, patch_save_paths],
+                names=['superpixel_save_paths', 'patch_save_paths'],
+                save_dir=save_dir,
+                overwrite=overwrite
+            )
+        # superpixel_patch
+        # patch_paths_save_path = os.path.join(save_dir, 'patch_paths.txt')
+        # write_lists(patch_save_path, paths_save_path)
         informal_log("Saved features, image numbers, and patches to {}".format(save_path),
                         self.log_path, timestamp=True)
 
@@ -690,20 +705,28 @@ class ConceptDiscovery(object):
         if len(cluster_centers.shape) == 3:
             cluster_centers = np.squeeze(cluster_centers)
             
-        concept_centers, top_concept_image_data = self._filter_concepts(
+        concept_centers, top_concept_index_data = self._filter_concepts(
             assignments=cluster_assignments,
             costs=cluster_costs,
             centers=cluster_centers,
             min_patches=min_patches,
             max_patches=max_patches)
-            # save_dir=save_dir)
         
         # Save image data
         if save:
-            self._save_concept_image_data(
-                concept_image_data=top_concept_image_data)
+            concept_save_dir = os.path.join(self.checkpoint_dir, 'concepts')
+            save_path = self._save(
+                datas=[top_concept_index_data],
+                names=['concept_indexing'],
+                save_dir=concept_save_dir,
+                overwrite=True
+            )[0]
+            informal_log("Saved which image/patches belong to which concept to {}".format(save_path),
+                         self.log_path, timestamp=True)
+            # self._save_concept_image_data(
+            #     concept_image_data=top_concept_image_data)
         
-        return concept_centers, top_concept_image_data
+        return concept_centers, top_concept_index_data
             
     def _cluster_features(self,
                         # cluster_params,
@@ -735,7 +758,6 @@ class ConceptDiscovery(object):
             raise ValueError("Cluster method {} not supported".format(self.cluster_method))
             
     
-            
     def _filter_concepts(self,
                          assignments,
                          costs,
@@ -817,27 +839,28 @@ class ConceptDiscovery(object):
             
         return concept_centers, top_concept_indexing_data
     
-    def _save_concept_image_data(self, 
-                                 concept_image_data):
-        concepts_save_dir = os.path.join(self.checkpoint_dir, 'concepts')
-        n_items = len(concept_image_data)
-        for concept_idx, image_data in tqdm(enumerate(concept_image_data), total=n_items):
-            cur_concept_save_dir = os.path.join(concepts_save_dir, 'concept_{}'.format(concept_idx))
-            ensure_dir(cur_concept_save_dir)
+    # def _save_concept_image_data(self, 
+    #                              concept_image_data):
+    #     concepts_save_dir = os.path.join(self.checkpoint_dir, 'concepts')
+    #     n_items = len(concept_image_data)
+    #     for concept_idx, image_data in tqdm(enumerate(concept_image_data), total=n_items):
+    #         cur_concept_save_dir = os.path.join(concepts_save_dir, 'concept_{}'.format(concept_idx))
+    #         ensure_dir(cur_concept_save_dir)
             
-            save_path = save_torch(
-                data=image_data,
-                save_dir=cur_concept_save_dir,
-                name='image_data'.format(concept_idx),
-                overwrite=True)
+    #         save_path = save_torch(
+    #             data=image_data,
+    #             save_dir=cur_concept_save_dir,
+    #             name='image_data'.format(concept_idx),
+    #             overwrite=True)
             
            
     def get_features_for_concepts(self,
-                                     model,
-                                     device,
-                                     concepts,
-                                     batch_size=256,
-                                     channel_mean=True,
+                                  concepts,
+                                    #  model,
+                                    #  device,
+                                    #  concepts,
+                                    #  batch_size=256,
+                                    #  channel_mean=True,
                                      save=True):
         '''
         Given a model and dictionary of concepts, get the features for the images 
@@ -847,36 +870,55 @@ class ConceptDiscovery(object):
                 model where output is already the features
             concepts : list[dict]
                 list of concepts where each concept is represented by a dictionary with the following keys:
-                    images : N x 3 x H x W np.array
-                        image patches resized to original size
                     patches : N x 3 x H x W np.array
                         images with patches in their true size and location
                     image_numbers : list[N]
                         Corresponding image numbers
         Returns:
-            concept with dictionary containing new key 'features' with N x D feature vectors
+            list[np.array] : list of feature vectors for each concept
                     
         '''
         concept_features = []
         for idx, concept in enumerate(concepts):
-            images = concept['images']
+            # images = concept['images']
+            concept_image_numbers = concept['image_numbers']
+            concept_patch_numbers = concept['patch_numbers']
 
-            features = self.get_features(
-                features_model=model,
-                device=device,
-                batch_size=batch_size,
-                channel_mean=channel_mean,
-                dataset=images)
-            
-            cur_concept = {
-                'image_numbers': concept['image_numbers'],
-                'features': features
-            }
-            concept_features.append(cur_concept)
+            # Get list of indices to get features for this concept
+            feature_idxs = []
+            # Obtain the idx that this image starts at
+            feature_idxs = np.array([self.image_start_idxs[img_num] for img_num in concept_image_numbers])
+            # Add offset based on patch
+            feature_idxs += concept_patch_numbers
+            # for img_num, patch_num in zip(concept_image_numbers, concept_patch_numbers):
+                
+            #     feature_idx = self.image_shape[img_num]
+                
+            #     feature_idx += patch_num
+            #     feature_idxs.append(feature_idx)
+
+            # features = self.get_features(
+            #     features_model=model,
+            #     device=device,
+            #     batch_size=batch_size,
+            #     channel_mean=channel_mean,
+            #     dataset=images)
+            features = self.features[feature_idxs]
+            concept['features'] = features
+            concept_features.append(concept)
             
         if save:
-            self._save_concept_features(
-                concept_features=concept_features)
+            # self._save_concept_features(
+            #     concept_features=concept_features)
+            concept_save_dir = os.path.join(self.checkpoint_dir, 'concepts')
+            save_path = self._save(
+                datas=[concept_features],
+                names=['concept_features'],
+                save_dir=concept_save_dir,
+                overwrite=True
+            )[0]
+            informal_log("Saved features to each concept in a list to {}".format(save_path),
+                         self.log_path, timestamp=True)
             
         return concept_features
     

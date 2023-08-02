@@ -184,7 +184,7 @@ def main(n_samples,
     # Clustering
     if verbose:
         informal_log("Clustering to discover concepts...", log_path, timestamp=True)
-    concept_centers, concept_image_data = cd.discover_concepts(
+    concept_centers, concept_index_data = cd.discover_concepts(
         min_patches=min_patches,
         max_patches=max_patches,
         save=True)
@@ -192,12 +192,11 @@ def main(n_samples,
     if verbose:
         informal_log("Obtaining features for samples in each concept", log_path, timestamp=True)
     concept_features = cd.get_features_for_concepts(
-        model=features_model,
-        device=device,
-        concepts=concept_image_data,
-        batch_size=batch_size,
-        save=True,
-        channel_mean=True)
+        # model=features_model,
+        # device=device,
+        concepts=concept_index_data,
+        # batch_size=batch_size,
+        save=True)
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
