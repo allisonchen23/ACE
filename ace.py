@@ -12,7 +12,7 @@ from multiprocessing import get_context, set_start_method, get_start_method
 from datetime import datetime
 from functools import partial
 # from tcav import cav
-from cav import CAV
+import cav
 
 from ace_helpers import *
 from utils import ensure_dir, save_torch, informal_log, read_lists, write_lists, save_image
@@ -581,39 +581,115 @@ class ConceptDiscovery(object):
             
         return concept_centers, top_concept_indexing_data
             
+    def get_features_for_concepts(self,
+                                  concepts,
+                                  save=True):
+        '''
+        Given a model and dictionary of concepts, get the features for the images 
+        
+        Arg(s):
+            model : torch.nn.Sequential
+                model where output is already the features
+            concepts : list[dict]
+                list of concepts where each concept is represented by a dictionary with the following keys:
+                    patches : N x 3 x H x W np.array
+                        images with patches in their true size and location
+                    image_numbers : list[N]
+                        Corresponding image numbers
+        Returns:
+            list[np.array] : list of feature vectors for each concept
+                    
+        '''
+        concept_features = []
+        for idx, concept in enumerate(concepts):
+            # images = concept['images']
+            concept_image_numbers = concept['image_numbers']
+            concept_patch_numbers = concept['patch_numbers']
+
+            # Get list of indices to get features for this concept
+            feature_idxs = []
+            # Obtain the idx that this image starts at
+            feature_idxs = np.array([self.image_start_idxs[img_num] for img_num in concept_image_numbers])
+            # Add offset based on patch
+            feature_idxs += concept_patch_numbers
+
+            features = self.features[feature_idxs]
+            concept['features'] = features
+            concept_features.append(concept)
+            
+        if save:
+            concept_save_dir = os.path.join(self.checkpoint_dir, 'concepts')
+            save_path = self._save(
+                datas=[concept_features],
+                names=['concept_features'],
+                save_dir=concept_save_dir,
+                overwrite=True
+            )[0]
+            informal_log("Saved features to each concept in a list to {}".format(save_path),
+                         self.log_path, timestamp=True)
+            
+        return concept_features
+    
     def calculate_cavs(self,
                        concepts,
+                       cav_hparams,
                        n_trials=20,
+                       bottleneck_name='avgpool',
                        min_acc=0.0):
-        keep_idxs = []
-        cavs = []
-        all_features = [concept['features'] for concept in concepts]
-        cav_activations, concept_names = self._format_activations(concepts=concepts)
+        '''
+        Calculate repeated trials of CAVs for all concepts
 
-        cavs = CAV(
-            concepts=concept_names,
-            bottleneck='avgpool',
-            hparams={},
+        Arg(s):
+            concepts : list[dict]
+                where each element corresponds with a concept
+                each item is a dictionary with keys 'features', 'image_numbers', 'patch_numbers'
+            cav_hparams : dict
+                dictionary for parameters to training CAV linear model
+            n_trials : int
+                number of repeated trials for each concept. Must be < n_concepts
+            bottleneck_name : str
+                name of the bottleneck that activations are from
+            min_acc : float
+                minimum accuracy to accept this CAV
+    
+        '''
+        delete_concepts = []
+        # cavs = []
+        # acc = {bottleneck_name: {}}
+        accuracies = []
+        cav_dir = os.path.join(self.checkpoint_dir, 'cavs')
+        # all_features = [concept['features'] for concept in concepts]
+        cav_activations, concept_names = self._format_activations(concepts=concepts)
+        
+        n_trials = min(n_trials, len(concept_names) - 1)
+
+        for concept_idx, target_concept_name in enumerate(concept_names):
+            concept_accuracies = self._concept_cavs(
+                concept_names=concept_names,
+                target_concept_name=target_concept_name,
+                cav_activations=cav_activations,
+                bottleneck_name=bottleneck_name,
+                cav_hparams=cav_hparams,
+                cav_dir=cav_dir,
+                n_trials=n_trials
+            )
+
+            # acc[bottleneck_name][target_concept_name] = concept_accuracies
+            accuracies.append(concept_accuracies)
+            if np.mean(concept_accuracies) < min_acc:
+                delete_concepts.append(target_concept_name)
+
+        self.concept_dic = self._consolidate_concept_information(
+            concepts=concepts,
+            concept_names=concept_names,
+            bottleneck_name=bottleneck_name,
+            accuracies=accuracies
         )
-        cavs.train(
-            acts=cav_activations
-        )
-        # flattened_activations, labels, labels2text = CAV._create_cav_training_set(
-        #     concept=concept_names,
-        #     bottleneck='avgpool',
-        #     acts=cav_activations)
+
+        for concept in delete_concepts:
+            self.delete_concept(bottleneck_name, concept)
         
         return
-        # np.random.seed(None)
-        # for concept_idx, concept in enumerate(concepts):
-        #     concept_features = concept['features']
-        #     n_concept_features = len(concept_features)
-        #     all_other_features = all_features[:concept_idx] + all_features[concept_idx+1:]
-        #     # Assert no overlap between positive and negative features
-        #     assert len(set(concept_features).intersection(set(all_other_features))) == 0
-
-        #     all_other_features = np.concatenate(all_other_features, axis=0)
-        #     lm = linear_model.LogisticRegression()
 
     def _format_activations(self, concepts):
         '''
@@ -646,84 +722,157 @@ class ConceptDiscovery(object):
             concept_names.append(concept_name)
         return acts, concept_names
             
-    def get_features_for_concepts(self,
-                                  concepts,
-                                    #  model,
-                                    #  device,
-                                    #  concepts,
-                                    #  batch_size=256,
-                                    #  channel_mean=True,
-                                     save=True):
+    def _calculate_cav(self,
+                       target_concept_name,
+                       random_concept_name,
+                       bottleneck_name,
+                       target_concept_activations,
+                       random_concept_activations,
+                       cav_dir,
+                       cav_hparams):
+        
+        activations = {
+            target_concept_name: {
+                bottleneck_name: target_concept_activations
+            },
+            random_concept_name: {
+                bottleneck_name: random_concept_activations
+            }
+        }
+
+        cav_instance = cav.get_or_train_cav(
+            concepts=[target_concept_name, random_concept_name],
+            bottleneck=bottleneck_name,
+            acts=activations,
+            cav_dir=cav_dir,
+            cav_hparams=cav_hparams,
+            log_path=self.log_path
+        )
+
+        return cav_instance
+    
+    def _concept_cavs(self,
+                      concept_names,
+                      target_concept_name,
+                      cav_activations,
+                      bottleneck_name,
+                      cav_hparams,
+                      cav_dir=None,
+                      n_trials=20):
         '''
-        Given a model and dictionary of concepts, get the features for the images 
+        Calculate repeated trials of a CAV for a specific concept. Return list of accuracies
         
         Arg(s):
-            model : torch.nn.Sequential
-                model where output is already the features
-            concepts : list[dict]
-                list of concepts where each concept is represented by a dictionary with the following keys:
-                    patches : N x 3 x H x W np.array
-                        images with patches in their true size and location
-                    image_numbers : list[N]
-                        Corresponding image numbers
-        Returns:
-            list[np.array] : list of feature vectors for each concept
-                    
+            concept_names : list[str]
+                list of concept names
+            target_concept_name : str
+                name of desired concept
+            cav_activations : dict[str : dict[np.array]]
+                As described in cav.py
+                {'concept1':{'bottleneck name1':[...act array...],
+                             'bottleneck name2':[...act array...],...
+                 'concept2':{'bottleneck name1':[...act array...],
+            bottleneck_name : str
+                name of bottleneck layer
+            cav_hparams : dict[str: other]
+                dictionary of parameters for linear model
+            cav_dir : str or None
+                directory to save CAVs
+            n_trials : int  
+                number of repeated trials (# of random concepts to choose)
         '''
-        concept_features = []
-        for idx, concept in enumerate(concepts):
-            # images = concept['images']
-            concept_image_numbers = concept['image_numbers']
-            concept_patch_numbers = concept['patch_numbers']
+        target_concept_activations = cav_activations[target_concept_name][bottleneck_name]
+        # Choose random other concepts to use as negative examples
+        random_concept_pool = concept_names.copy()
+        random_concept_pool.remove(target_concept_name)
+        random_concepts = np.random.choice(random_concept_pool, size=n_trials, replace=False)
+        concept_cav_dir = os.path.join(cav_dir, target_concept_name)
 
-            # Get list of indices to get features for this concept
-            feature_idxs = []
-            # Obtain the idx that this image starts at
-            feature_idxs = np.array([self.image_start_idxs[img_num] for img_num in concept_image_numbers])
-            # Add offset based on patch
-            feature_idxs += concept_patch_numbers
-            # for img_num, patch_num in zip(concept_image_numbers, concept_patch_numbers):
-                
-            #     feature_idx = self.image_shape[img_num]
-                
-            #     feature_idx += patch_num
-            #     feature_idxs.append(feature_idx)
+        concept_accuracies = []
+        # Pair each random concept as the negative examples
+        for random_concept_name in (random_concepts):
+            random_concept_activations = cav_activations[random_concept_name][bottleneck_name]
+            # Calculate and save (or load) CAV
+            cav_instance = self._calculate_cav(
+                target_concept_name=target_concept_name,
+                random_concept_name=random_concept_name,
+                bottleneck_name=bottleneck_name,
+                target_concept_activations=target_concept_activations,
+                random_concept_activations=random_concept_activations,
+                cav_dir=concept_cav_dir,
+                cav_hparams=cav_hparams)
 
-            # features = self.get_features(
-            #     features_model=model,
-            #     device=device,
-            #     batch_size=batch_size,
-            #     channel_mean=channel_mean,
-            #     dataset=images)
-            features = self.features[feature_idxs]
-            concept['features'] = features
-            concept_features.append(concept)
-            
-        if save:
-            # self._save_concept_features(
-            #     concept_features=concept_features)
-            concept_save_dir = os.path.join(self.checkpoint_dir, 'concepts')
-            save_path = self._save(
-                datas=[concept_features],
-                names=['concept_features'],
-                save_dir=concept_save_dir,
-                overwrite=True
-            )[0]
-            informal_log("Saved features to each concept in a list to {}".format(save_path),
-                         self.log_path, timestamp=True)
-            
-        return concept_features
+            # Store overall accuracy
+            cav_accuracy = cav_instance.accuracies['overall']
+            concept_accuracies.append(cav_accuracy)
+        
+        return concept_accuracies
+
+    def _consolidate_concept_information(self,
+                                         concepts,
+                                         concept_names,
+                                         bottleneck_name,
+                                         accuracies):
+        '''
+        Given lists that represent different concept information, consolidate to dictionary of
+            {
+                'concept1_name': {
+                    'bottleneck1': {
+                        'features': np.array,
+                        'image_numbers': np.array,
+                        'accuracies': np.array,
+                    },
+                    'bottleneck2': {
+                        'features': np.array,
+                        'image_numbers': np.array,
+                        'accuracies': np.array,
+                    }
+                }
+            }
+
+        Arg(s):
+            concepts : list[dict]
+                represents each concept, dictionary contains 'features', 'image_numbers', and 'patch_numbers'
+            concept_names : list[str]
+                list of concept_names
+            bottleneck_name : str
+                name of bottleneck layer
+            accuracies : list[list[float]]
+                list of accuracies for each concept
+                inner list is from n_trials
+        '''
+        n_concepts = len(concept)
+        assert len(concept_names) == n_concepts
+        assert len(accuracies) == n_concepts
+        dic = {}
+        for concept_name, concept, concept_accuracies in zip(concept_names, concepts, accuracies):
+            concept_dic = concept.update({'concept_accuracies': np.array(concept_accuracies)})
+            dic[concept_name] = {
+                bottleneck_name: concept_dic
+            }
+        return dic
     
-    def _save_concept_features(self, 
-                               concept_features):
-        concepts_save_dir = os.path.join(self.checkpoint_dir, 'concepts')
-        n_items = len(concept_features)
-        for concept_idx, features in tqdm(enumerate(concept_features), total=n_items):
-            cur_concept_save_dir = os.path.join(concepts_save_dir, 'concept_{}'.format(concept_idx))
-            ensure_dir(cur_concept_save_dir)
+    def delete_concept(self, bn, concept):
+        """Removes a discovered concepts if it's not already removed.
+
+        Args:
+        bn: Bottleneck layer where the concepts is discovered.
+        concept: concept name
+        """
+        self.concept_dic[bn].pop(concept, None)
+        # if concept in self.dic[bn]['concepts']:
+        #     self.dic[bn]['concepts'].pop(self.dic[bn]['concepts'].index(concept))
+   
+    # def _save_concept_features(self, 
+    #                            concept_features):
+    #     concepts_save_dir = os.path.join(self.checkpoint_dir, 'concepts')
+    #     n_items = len(concept_features)
+    #     for concept_idx, features in tqdm(enumerate(concept_features), total=n_items):
+    #         cur_concept_save_dir = os.path.join(concepts_save_dir, 'concept_{}'.format(concept_idx))
+    #         ensure_dir(cur_concept_save_dir)
             
-            save_path = save_torch(
-                data=features,
-                save_dir=cur_concept_save_dir,
-                name='features'.format(concept_idx),
-                overwrite=True)
+    #         save_path = save_torch(
+    #             data=features,
+    #             save_dir=cur_concept_save_dir,
+    #             name='features'.format(concept_idx),
+    #             overwrite=True)

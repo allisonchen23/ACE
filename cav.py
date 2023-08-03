@@ -9,7 +9,9 @@ from sklearn import linear_model
 from sklearn import metrics
 from sklearn.model_selection import train_test_split
 import tensorflow as tf
-import utils as utils
+# import utils as utils
+
+from utils import ensure_dir, informal_log
 
 
 class CAV(object):
@@ -44,7 +46,7 @@ class CAV(object):
         Returns:
           CAV instance.
         """
-        with tf.gfile.Open(cav_path, 'rb') as pkl_file:
+        with open(cav_path, 'rb') as pkl_file:
             save_dict = pickle.load(pkl_file)
 
         cav = CAV(save_dict['concepts'], save_dict['bottleneck'],
@@ -84,8 +86,8 @@ class CAV(object):
         """
         cav_path = os.path.join(
             cav_dir,
-            CAV.cav_key(concepts, bottleneck, cav_hparams.model_type,
-                        cav_hparams.alpha) + '.pkl')
+            CAV.cav_key(concepts, bottleneck, cav_hparams['model_type'],
+                        cav_hparams['alpha']) + '.pkl')
         return tf.gfile.Exists(cav_path)
 
     @staticmethod
@@ -122,19 +124,22 @@ class CAV(object):
 
         return x, labels, labels2text
 
-    def __init__(self, concepts, bottleneck, hparams, save_path=None):
+    def __init__(self, concepts, bottleneck, hparams, save_path=None, log_path=None):
         """Initialize CAV class.
 
         Args:
-          concepts: set of concepts used for CAV
-          bottleneck: the bottleneck used for CAV
-          hparams: a parameter used to learn CAV
-          save_path: where to save this CAV
+			concepts: set of concepts used for CAV
+			bottleneck: the bottleneck used for CAV
+			hparams : dict 
+				a parameter dictionary used to learn CAV
+			save_path: where to save this CAV
+			log_path: file to save logging to
         """
         self.concepts = concepts
         self.bottleneck = bottleneck
         self.hparams = hparams
         self.save_path = save_path
+        self.log_path = log_path
 
     def train(self, acts):
         """Train the CAVs from the activations.
@@ -148,18 +153,19 @@ class CAV(object):
           ValueError: if the model_type in hparam is not compatible.
         """
 
-        tf.logging.info('training with alpha={}'.format(self.hparams.alpha))
+        # tf.logging.info('training with alpha={}'.format(self.hparams.alpha))
+
         x, labels, labels2text = CAV._create_cav_training_set(
             self.concepts, self.bottleneck, acts)
 
-        if self.hparams.model_type == 'linear':
+        if self.hparams['model_type'] == 'linear':
             lm = linear_model.SGDClassifier(alpha=self.hparams.alpha, tol=1e-3, max_iter=1000)
-        elif self.hparams.model_type == 'logistic':
+        elif self.hparams['model_type'] == 'logistic':
             lm = linear_model.LogisticRegression()
         else:
             raise ValueError('Invalid hparams.model_type: {}'.format(
                 self.hparams.model_type))
-
+        # TODO: Include hparam search for regularization term (C)
         self.accuracies = self._train_lm(lm, x, labels, labels2text)
         if len(lm.coef_) == 1:
             # if there were only two labels, the concept is assigned to label 0 by
@@ -191,11 +197,15 @@ class CAV(object):
             'saved_path': self.save_path
         }
         if self.save_path is not None:
-            with tf.gfile.Open(self.save_path, 'w') as pkl_file:
+            # with tf.gfile.Open(self.save_path, 'w') as pkl_file:
+            with open(self.save_path, 'wb') as pkl_file:
                 pickle.dump(save_dict, pkl_file)
         else:
-            tf.logging.info('save_path is None. Not saving anything')
+			# tf.logging.info('save_path is None. Not saving anything')
+            informal_log("save_path is None. Not saving anything", self.log_path, timestamp=True)
 
+    def _hparam_search_lm(self, lm, Cs, x, y):
+        pass
     def _train_lm(self, lm, x, y, labels2text):
         """Train a model to get CAVs.
 
@@ -232,7 +242,8 @@ class CAV(object):
             # overall correctness is weighted by the number of examples in this class.
             num_correct += (sum(idx) * acc[labels2text[class_id]])
         acc['overall'] = float(num_correct) / float(len(y_test))
-        tf.logging.info('acc per class %s' % (str(acc)))
+        informal_log('acc per class %s' % (str(acc)), self.log_path, timestamp=True)
+        # tf.logging.info('acc per class %s' % (str(acc)))
         return acc
 
 
@@ -241,7 +252,8 @@ def get_or_train_cav(concepts,
                      acts,
                      cav_dir=None,
                      cav_hparams=None,
-                     overwrite=False):
+                     overwrite=False,
+                     log_path=None):
     """Gets, creating and training if necessary, the specified CAV.
 
     Assumes the activations already exists.
@@ -266,19 +278,23 @@ def get_or_train_cav(concepts,
 
     cav_path = None
     if cav_dir is not None:
-        utils.make_dir_if_not_exists(cav_dir)
+        # utils.make_dir_if_not_exists(cav_dir)
+        ensure_dir(cav_dir)
         cav_path = os.path.join(
             cav_dir,
-            CAV.cav_key(concepts, bottleneck, cav_hparams.model_type,
-                        cav_hparams.alpha).replace('/', '.') + '.pkl')
+            CAV.cav_key(concepts, bottleneck, cav_hparams['model_type'], cav_hparams['alpha'])
+                .replace('/', '.') + '.pkl')
 
-        if not overwrite and tf.gfile.Exists(cav_path):
-            tf.logging.info('CAV already exists: {}'.format(cav_path))
+        if not overwrite and os.path.exists(cav_path):
+            # tf.logging.info('CAV already exists: {}'.format(cav_path))
+            informal_log('CAV already exists: {}'.format(cav_path), log_path, timestamp=True)
             cav_instance = CAV.load_cav(cav_path)
             return cav_instance
 
-    tf.logging.info('Training CAV {} - {} alpha {}'.format(
-        concepts, bottleneck, cav_hparams.alpha))
+    # tf.logging.info('Training CAV {} - {} alpha {}'.format(
+        # concepts, bottleneck, cav_hparams.alpha))
+    informal_log('Training CAV {} - {} alpha {}'.format(
+        concepts, bottleneck, cav_hparams['alpha']), log_path, timestamp=True)
     cav_instance = CAV(concepts, bottleneck, cav_hparams, cav_path)
     cav_instance.train({c: acts[c] for c in concepts})
     return cav_instance

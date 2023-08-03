@@ -85,6 +85,12 @@ def main(n_samples,
     min_patches = 5
     max_patches = 40
 
+    # Variables for CAVs
+    cav_param_dict = {
+        'model_type': 'logistic',
+        'alpha': None
+    }
+
     # Load data paths
     ade20k_data = torch.load(data_path)
     train_paths = np.array(ade20k_data['train'])
@@ -136,8 +142,7 @@ def main(n_samples,
     if verbose:
         informal_log("Created patches & features from {} images".format(len(paths)), log_path, timestamp=True)
     
-    if n_samples > 10: 
-        return
+    
     # Clustering
     if verbose:
         informal_log("Clustering to discover concepts...", log_path, timestamp=True)
@@ -152,9 +157,14 @@ def main(n_samples,
         concepts=concept_index_data,
         save=True)
     
+    if n_samples > 10: 
+        return
+    
     # Calculate CAVs for each concept
+    
     cd.calculate_cavs(
-        concepts=concept_features)
+        concepts=concept_features,
+        cav_hparams=cav_param_dict)
     
     
 if __name__ == "__main__":
