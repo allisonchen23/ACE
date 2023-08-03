@@ -450,11 +450,28 @@ class ConceptDiscovery(object):
     def discover_concepts(self,
                           min_patches=5,
                           max_patches=40,
+                          overwrite=False,
                           save=False):
         
+        # Check if centers and indices already exist
+        concept_key = 'concepts-K_{}-min_{}-max_{}'.format(
+                self.cluster_param_dict['n_clusters'],
+                min_patches,
+                max_patches)
+        concept_dir = os.path.join(self.checkpoint_dir, 'saved', concept_key)
+        concept_index_path = os.path.join(concept_dir, 'concept_indexing.pth')
+        concept_centers_path = os.path.join(concept_dir, 'centers.pth')
+        if not overwrite and os.path.exists(concept_index_path) and os.path.exists(concept_centers_path):
+            concept_centers = torch.load(concept_centers_path)
+            top_concept_index_data = torch.load(concept_index_path)
+            informal_log("Loading concept centers and index data from {} directory".format(concept_dir),
+                         self.log_path, timestamp=True)
+            return concept_centers, top_concept_index_data
+        
+        # Cluster features to obtain concepts
         cluster_assignments, cluster_costs, cluster_centers = self._cluster_features(
             features=self.features)
-        
+    
         # If for some reason cluster_centers is 1 x C x D, squeeze it to be C x D
         if len(cluster_centers.shape) == 3:
             cluster_centers = np.squeeze(cluster_centers)
@@ -468,14 +485,16 @@ class ConceptDiscovery(object):
         
         # Save image data
         if save:
-            concept_save_dir = os.path.join(self.checkpoint_dir, 'concepts')
-            save_path = self._save(
-                datas=[top_concept_index_data],
-                names=['concept_indexing'],
+            concept_save_dir = os.path.join(self.checkpoint_dir, 'saved', concept_key)
+            save_paths = self._save(
+                datas=[top_concept_index_data, concept_centers],
+                names=['concept_indexing', 'concept_centers'],
                 save_dir=concept_save_dir,
                 overwrite=True
-            )[0]
-            informal_log("Saved which image/patches belong to which concept to {}".format(save_path),
+            )
+            informal_log("Saved which image/patches belong to which concept to {}".format(save_paths[0]),
+                         self.log_path, timestamp=True)
+            informal_log("Saved which concept centers to {}".format(save_paths[1]),
                          self.log_path, timestamp=True)
         
         return concept_centers, top_concept_index_data
@@ -601,7 +620,7 @@ class ConceptDiscovery(object):
                     
         '''
         concept_features = []
-        for idx, concept in enumerate(concepts):
+        for _, concept in enumerate(concepts):
             # images = concept['images']
             concept_image_numbers = concept['image_numbers']
             concept_patch_numbers = concept['patch_numbers']
@@ -618,7 +637,7 @@ class ConceptDiscovery(object):
             concept_features.append(concept)
             
         if save:
-            concept_save_dir = os.path.join(self.checkpoint_dir, 'concepts')
+            concept_save_dir = os.path.join(self.checkpoint_dir, 'saved', 'concepts')
             save_path = self._save(
                 datas=[concept_features],
                 names=['concept_features'],
@@ -635,7 +654,8 @@ class ConceptDiscovery(object):
                        cav_hparams,
                        n_trials=20,
                        bottleneck_name='avgpool',
-                       min_acc=0.0):
+                       min_acc=0.0,
+                       debug=False):
         '''
         Calculate repeated trials of CAVs for all concepts
 
@@ -657,7 +677,7 @@ class ConceptDiscovery(object):
         # cavs = []
         # acc = {bottleneck_name: {}}
         accuracies = []
-        cav_dir = os.path.join(self.checkpoint_dir, 'cavs')
+        cav_dir = os.path.join(self.checkpoint_dir, 'saved', 'cavs')
         # all_features = [concept['features'] for concept in concepts]
         cav_activations, concept_names = self._format_activations(concepts=concepts)
         
@@ -671,7 +691,8 @@ class ConceptDiscovery(object):
                 bottleneck_name=bottleneck_name,
                 cav_hparams=cav_hparams,
                 cav_dir=cav_dir,
-                n_trials=n_trials
+                n_trials=n_trials,
+                debug=debug
             )
 
             # acc[bottleneck_name][target_concept_name] = concept_accuracies
@@ -729,7 +750,8 @@ class ConceptDiscovery(object):
                        target_concept_activations,
                        random_concept_activations,
                        cav_dir,
-                       cav_hparams):
+                       cav_hparams,
+                       debug=False):
         
         activations = {
             target_concept_name: {
@@ -758,7 +780,8 @@ class ConceptDiscovery(object):
                       bottleneck_name,
                       cav_hparams,
                       cav_dir=None,
-                      n_trials=20):
+                      n_trials=20,
+                      debug=False):
         '''
         Calculate repeated trials of a CAV for a specific concept. Return list of accuracies
         
@@ -800,7 +823,8 @@ class ConceptDiscovery(object):
                 target_concept_activations=target_concept_activations,
                 random_concept_activations=random_concept_activations,
                 cav_dir=concept_cav_dir,
-                cav_hparams=cav_hparams)
+                cav_hparams=cav_hparams,
+                debug=debug)
 
             # Store overall accuracy
             cav_accuracy = cav_instance.accuracies['overall']
@@ -841,7 +865,7 @@ class ConceptDiscovery(object):
                 list of accuracies for each concept
                 inner list is from n_trials
         '''
-        n_concepts = len(concept)
+        n_concepts = len(concepts)
         assert len(concept_names) == n_concepts
         assert len(accuracies) == n_concepts
         dic = {}

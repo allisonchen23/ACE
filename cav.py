@@ -124,7 +124,13 @@ class CAV(object):
 
         return x, labels, labels2text
 
-    def __init__(self, concepts, bottleneck, hparams, save_path=None, log_path=None):
+    def __init__(self, 
+                 concepts, 
+                 bottleneck, 
+                 hparams, 
+                 save_path=None, 
+                 log_path=None,
+                 debug=False):
         """Initialize CAV class.
 
         Args:
@@ -140,6 +146,7 @@ class CAV(object):
         self.hparams = hparams
         self.save_path = save_path
         self.log_path = log_path
+        self.debug = debug
 
     def train(self, acts):
         """Train the CAVs from the activations.
@@ -242,7 +249,8 @@ class CAV(object):
             # overall correctness is weighted by the number of examples in this class.
             num_correct += (sum(idx) * acc[labels2text[class_id]])
         acc['overall'] = float(num_correct) / float(len(y_test))
-        informal_log('acc per class %s' % (str(acc)), self.log_path, timestamp=True)
+        if self.debug:
+            informal_log('acc per class %s' % (str(acc)), self.log_path, timestamp=True)
         # tf.logging.info('acc per class %s' % (str(acc)))
         return acc
 

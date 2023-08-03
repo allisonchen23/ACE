@@ -52,6 +52,7 @@ def load_features_model(arch,
     return model, features_model
 
 def main(n_samples,
+         debug=False,
          verbose=True):
     
     # Variables for CD
@@ -82,7 +83,7 @@ def main(n_samples,
     cluster_param_dict = {
         'n_clusters': 25
     }
-    min_patches = 5
+    min_patches = 20
     max_patches = 40
 
     # Variables for CAVs
@@ -157,20 +158,31 @@ def main(n_samples,
         concepts=concept_index_data,
         save=True)
     
-    if n_samples > 10: 
+    if n_samples > 160:
         return
     
     # Calculate CAVs for each concept
-    
     cd.calculate_cavs(
         concepts=concept_features,
-        cav_hparams=cav_param_dict)
+        cav_hparams=cav_param_dict,
+        debug=debug)
     
+    # Save concept dictionary
+    save_paths = cd._save(
+        datas=[cd.concept_dic],
+        names=['concept_dictionary'],
+        save_dir=cd.checkpoint_dir,
+        overwrite=True)
+    informal_log("Saved concept dictionary to {}".format(save_paths[0]),
+                 log_path=log_path, timestamp=True)
     
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--n_samples', required=True, type=int)
+    parser.add_argument('--debug', action='store_true')
     args = parser.parse_args()
  
     main(
-        n_samples=args.n_samples)
+        n_samples=args.n_samples,
+        debug=args.debug)
