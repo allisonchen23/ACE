@@ -24,16 +24,19 @@ class ConceptDiscovery(object):
     def __init__(self,
                  filepaths,
                  features_model,
-                 superpixel_method='slic',
-                 superpixel_param_dict=None,
-                 cluster_method='KM',
-                 cluster_param_dict=None,
                  device=None,
                  batch_size=256,
                  channel_mean=True,
                  n_workers=100,
                  average_image_value=117,
                  image_shape=(224, 224),
+                 superpixel_method='slic',
+                 superpixel_param_dict=None,
+                 # Clustering parameters
+                 cluster_method='KM',
+                 cluster_param_dict=None,
+                 min_patches_per_concept=5,
+                 max_patches_per_concept=40,
                  checkpoint_dir='temp_save',
                  verbose=True,
                  seed=None):
@@ -57,11 +60,20 @@ class ConceptDiscovery(object):
         else:
             self.superpixel_param_dict = superpixel_param_dict
         
+        # Cluster/Concept related parameters
         self.cluster_method = cluster_method
         if cluster_param_dict is None:
             self.cluster_param_dict = {}
         else:
             self.cluster_param_dict = cluster_param_dict
+        self.min_patches_per_concept = min_patches_per_concept
+        self.max_patches_per_concept = max_patches_per_concept
+        self.concept_key = 'concepts-K_{}-min_{}-max_{}'.format(
+                self.cluster_param_dict['n_clusters'],
+                self.min_patches_per_concept,
+                self.max_patches_per_concept)
+        
+        
         self.device = device
         self.batch_size = batch_size
         self.channel_mean = channel_mean
@@ -448,19 +460,19 @@ class ConceptDiscovery(object):
         
     
     def discover_concepts(self,
-                          min_patches=5,
-                          max_patches=40,
+                        #   min_patches=5,
+                        #   max_patches=40,
                           overwrite=False,
                           save=False):
         
         # Check if centers and indices already exist
-        concept_key = 'concepts-K_{}-min_{}-max_{}'.format(
-                self.cluster_param_dict['n_clusters'],
-                min_patches,
-                max_patches)
-        concept_dir = os.path.join(self.checkpoint_dir, 'saved', concept_key)
+        # concept_key = 'concepts-K_{}-min_{}-max_{}'.format(
+        #         self.cluster_param_dict['n_clusters'],
+        #         min_patches,
+        #         max_patches)
+        concept_dir = os.path.join(self.checkpoint_dir, 'saved', self.concept_key)
         concept_index_path = os.path.join(concept_dir, 'concept_indexing.pth')
-        concept_centers_path = os.path.join(concept_dir, 'centers.pth')
+        concept_centers_path = os.path.join(concept_dir, 'concept_centers.pth')
         if not overwrite and os.path.exists(concept_index_path) and os.path.exists(concept_centers_path):
             concept_centers = torch.load(concept_centers_path)
             top_concept_index_data = torch.load(concept_index_path)
@@ -479,13 +491,13 @@ class ConceptDiscovery(object):
         concept_centers, top_concept_index_data = self._filter_concepts(
             assignments=cluster_assignments,
             costs=cluster_costs,
-            centers=cluster_centers,
-            min_patches=min_patches,
-            max_patches=max_patches)
+            centers=cluster_centers)
+            # min_patches=self.min_patches_per_concept,
+            # max_patches=self.max_patches_per_concept)
         
         # Save image data
         if save:
-            concept_save_dir = os.path.join(self.checkpoint_dir, 'saved', concept_key)
+            concept_save_dir = os.path.join(self.checkpoint_dir, 'saved', self.concept_key)
             save_paths = self._save(
                 datas=[top_concept_index_data, concept_centers],
                 names=['concept_indexing', 'concept_centers'],
@@ -530,9 +542,9 @@ class ConceptDiscovery(object):
     def _filter_concepts(self,
                          assignments,
                          costs,
-                         centers,
-                         min_patches=5,
-                         max_patches=40):
+                         centers):
+                        #  min_patches=5,
+                        #  max_patches=40):
                          # save_dir=None):
         '''
         Given concept assignments, determine which images and patches belong to which concept
@@ -562,7 +574,7 @@ class ConceptDiscovery(object):
             # Get indices of superpixel patches that are in this concept 
             label_idxs = np.where(assignments == concept_idx)[0]
             # Pass if not enough patches in this concept
-            if len(label_idxs) < min_patches:
+            if len(label_idxs) < self.min_patches_per_concept:
                 continue
             
             # Select images that contain this concept
@@ -589,7 +601,7 @@ class ConceptDiscovery(object):
                 concept_centers.append(centers[concept_idx])
             # Keep up to max_patches patches for this concept, sorting by increasing cost
             concept_costs = costs[label_idxs]
-            concept_idxs = label_idxs[np.argsort(concept_costs)[:max_patches]]
+            concept_idxs = label_idxs[np.argsort(concept_costs)[:self.max_patches_per_concept]]
             # Save image numbers and patch numbers for top examples of this concept
             patch_index_data = {
                 'image_numbers': self.image_numbers[concept_idxs],
@@ -637,7 +649,7 @@ class ConceptDiscovery(object):
             concept_features.append(concept)
             
         if save:
-            concept_save_dir = os.path.join(self.checkpoint_dir, 'saved', 'concepts')
+            concept_save_dir = os.path.join(self.checkpoint_dir, 'saved', self.concept_key)
             save_path = self._save(
                 datas=[concept_features],
                 names=['concept_features'],
@@ -655,7 +667,8 @@ class ConceptDiscovery(object):
                        n_trials=20,
                        bottleneck_name='avgpool',
                        min_acc=0.0,
-                       debug=False):
+                       overwrite=False,
+                       save_linear_model=True):
         '''
         Calculate repeated trials of CAVs for all concepts
 
@@ -677,7 +690,7 @@ class ConceptDiscovery(object):
         # cavs = []
         # acc = {bottleneck_name: {}}
         accuracies = []
-        cav_dir = os.path.join(self.checkpoint_dir, 'saved', 'cavs')
+        cav_dir = os.path.join(self.checkpoint_dir, 'saved', self.concept_key, 'cavs')
         # all_features = [concept['features'] for concept in concepts]
         cav_activations, concept_names = self._format_activations(concepts=concepts)
         
@@ -692,7 +705,8 @@ class ConceptDiscovery(object):
                 cav_hparams=cav_hparams,
                 cav_dir=cav_dir,
                 n_trials=n_trials,
-                debug=debug
+                overwrite=overwrite,
+                save_linear_model=save_linear_model
             )
 
             # acc[bottleneck_name][target_concept_name] = concept_accuracies
@@ -751,7 +765,8 @@ class ConceptDiscovery(object):
                        random_concept_activations,
                        cav_dir,
                        cav_hparams,
-                       debug=False):
+                       overwrite=False,
+                       save_linear_model=True):
         
         activations = {
             target_concept_name: {
@@ -768,7 +783,9 @@ class ConceptDiscovery(object):
             acts=activations,
             cav_dir=cav_dir,
             cav_hparams=cav_hparams,
-            log_path=self.log_path
+            log_path=self.log_path,
+            overwrite=overwrite,
+            save_linear_model=save_linear_model
         )
 
         return cav_instance
@@ -781,7 +798,8 @@ class ConceptDiscovery(object):
                       cav_hparams,
                       cav_dir=None,
                       n_trials=20,
-                      debug=False):
+                      overwrite=False,
+                      save_linear_model=True):
         '''
         Calculate repeated trials of a CAV for a specific concept. Return list of accuracies
         
@@ -804,6 +822,9 @@ class ConceptDiscovery(object):
             n_trials : int  
                 number of repeated trials (# of random concepts to choose)
         '''
+        # TODO: add hparameter search?
+        # TODO: add best regularization to cav_hparams?
+
         target_concept_activations = cav_activations[target_concept_name][bottleneck_name]
         # Choose random other concepts to use as negative examples
         random_concept_pool = concept_names.copy()
@@ -824,7 +845,8 @@ class ConceptDiscovery(object):
                 random_concept_activations=random_concept_activations,
                 cav_dir=concept_cav_dir,
                 cav_hparams=cav_hparams,
-                debug=debug)
+                overwrite=overwrite,
+                save_linear_model=save_linear_model)
 
             # Store overall accuracy
             cav_accuracy = cav_instance.accuracies['overall']

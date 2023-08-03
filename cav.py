@@ -148,7 +148,7 @@ class CAV(object):
         self.log_path = log_path
         self.debug = debug
 
-    def train(self, acts):
+    def train(self, acts, save_linear_model=True):
         """Train the CAVs from the activations.
 
         Args:
@@ -180,7 +180,10 @@ class CAV(object):
             self.cavs = [-1 * lm.coef_[0], lm.coef_[0]]
         else:
             self.cavs = [c for c in lm.coef_]
-        self._save_cavs()
+        self.linear_model = lm
+        self._save_cavs(
+            save_linear_model=save_linear_model
+        )
 
     def get_direction(self, concept):
         """Get CAV direction.
@@ -193,7 +196,8 @@ class CAV(object):
         """
         return self.cavs[self.concepts.index(concept)]
 
-    def _save_cavs(self):
+    def _save_cavs(self,
+                   save_linear_model=True):
         """Save a dictionary of this CAV to a pickle."""
         save_dict = {
             'concepts': self.concepts,
@@ -203,6 +207,8 @@ class CAV(object):
             'cavs': self.cavs,
             'saved_path': self.save_path
         }
+        if save_linear_model:
+            save_dict.update({'linear_model': self.linear_model})
         if self.save_path is not None:
             # with tf.gfile.Open(self.save_path, 'w') as pkl_file:
             with open(self.save_path, 'wb') as pkl_file:
@@ -261,6 +267,7 @@ def get_or_train_cav(concepts,
                      cav_dir=None,
                      cav_hparams=None,
                      overwrite=False,
+                     save_linear_model=True,
                      log_path=None):
     """Gets, creating and training if necessary, the specified CAV.
 
@@ -304,5 +311,8 @@ def get_or_train_cav(concepts,
     informal_log('Training CAV {} - {} alpha {}'.format(
         concepts, bottleneck, cav_hparams['alpha']), log_path, timestamp=True)
     cav_instance = CAV(concepts, bottleneck, cav_hparams, cav_path)
-    cav_instance.train({c: acts[c] for c in concepts})
+    cav_instance.train(
+        acts={c: acts[c] for c in concepts},
+        save_linear_model=save_linear_model)
+    
     return cav_instance

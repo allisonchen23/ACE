@@ -85,12 +85,16 @@ def main(n_samples,
     }
     min_patches = 20
     max_patches = 40
+    cluster_overwrite = False
 
     # Variables for CAVs
     cav_param_dict = {
         'model_type': 'logistic',
         'alpha': None
     }
+    min_acc = 0.6
+    cav_overwrite = False
+    save_linear_model = True
 
     # Load data paths
     ade20k_data = torch.load(data_path)
@@ -125,6 +129,8 @@ def main(n_samples,
         # Cluster parameters
         cluster_method=cluster_method,
         cluster_param_dict=cluster_param_dict,
+        min_patches_per_concept=min_patches,
+        max_patches_per_concept=max_patches,
         # Feature extraction parameters
         device=device,
         batch_size=batch_size,
@@ -148,8 +154,7 @@ def main(n_samples,
     if verbose:
         informal_log("Clustering to discover concepts...", log_path, timestamp=True)
     concept_centers, concept_index_data = cd.discover_concepts(
-        min_patches=min_patches,
-        max_patches=max_patches,
+        overwrite=cluster_overwrite,
         save=True)
     
     if verbose:
@@ -158,23 +163,22 @@ def main(n_samples,
         concepts=concept_index_data,
         save=True)
     
-    if n_samples > 160:
-        return
-    
     # Calculate CAVs for each concept
     cd.calculate_cavs(
         concepts=concept_features,
         cav_hparams=cav_param_dict,
-        debug=debug)
+        min_acc=min_acc,
+        overwrite=cav_overwrite,
+        save_linear_model=save_linear_model)
     
     # Save concept dictionary
     save_paths = cd._save(
         datas=[cd.concept_dic],
         names=['concept_dictionary'],
-        save_dir=cd.checkpoint_dir,
+        save_dir=os.path.join(cd.checkpoint_dir, 'saved', cd.concept_key),
         overwrite=True)
     informal_log("Saved concept dictionary to {}".format(save_paths[0]),
-                 log_path=log_path, timestamp=True)
+                 log_path, timestamp=True)
     
 
 if __name__ == "__main__":
