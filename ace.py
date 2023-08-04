@@ -48,6 +48,8 @@ class ConceptDiscovery(object):
         ensure_dir(self.checkpoint_dir)
 
         self.seed = seed
+        if self.seed is not None:
+            np.random.seed(self.seed)
         self.verbose = verbose
         self.log_path = os.path.join(self.checkpoint_dir, 'log.txt')
 
@@ -132,7 +134,7 @@ class ConceptDiscovery(object):
                 shape=self.image_shape)
             informal_log("Obtaining features for superpixel patches...", self.log_path, timestamp=True)
             self._create_features(
-                discovery_images=discovery_images
+                discovery_images=discovery_images,
                 save_features=save_features,
                 save_image_patches=save_image_patches
             )
@@ -582,7 +584,8 @@ class ConceptDiscovery(object):
 
     def get_features_for_concepts(self,
                                   concepts,
-                                  save=True):
+                                  save=True,
+                                  overwrite=False):
         '''
         Given a model and dictionary of concepts, get the features for the images
 
@@ -599,6 +602,10 @@ class ConceptDiscovery(object):
             list[np.array] : list of feature vectors for each concept
 
         '''
+        restore_path = os.path.join(self.checkpoint_dir, 'saved', self.concept_key, 'concept_features.pth')
+        if not overwrite and os.path.exists(restore_path):
+            concept_features = torch.load(restore_path)
+            return concept_features
         concept_features = []
         for _, concept in enumerate(concepts):
             # images = concept['images']

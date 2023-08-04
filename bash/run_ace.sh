@@ -10,4 +10,7 @@
 #SBATCH -t 72:00:00           # time requested in hour:minute:second
 
 python ace_run.py \
---n_samples 800
+--n_samples 800 \
+--n_concepts 100 \
+--min_patches_per_cluster 20 \
+--max_patches_per_cluster 40 
