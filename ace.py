@@ -46,11 +46,11 @@ class ConceptDiscovery(object):
         self.image_shape = image_shape
         self.checkpoint_dir = checkpoint_dir
         ensure_dir(self.checkpoint_dir)
-        
+
         self.seed = seed
         self.verbose = verbose
         self.log_path = os.path.join(self.checkpoint_dir, 'log.txt')
-        
+
         self.filepaths = filepaths
         self.discovery_images = None
         self.features_model = features_model
@@ -59,7 +59,7 @@ class ConceptDiscovery(object):
             self.superpixel_param_dict = {}
         else:
             self.superpixel_param_dict = superpixel_param_dict
-        
+
         # Cluster/Concept related parameters
         self.cluster_method = cluster_method
         if cluster_param_dict is None:
@@ -72,30 +72,32 @@ class ConceptDiscovery(object):
                 self.cluster_param_dict['n_clusters'],
                 self.min_patches_per_concept,
                 self.max_patches_per_concept)
-        
-        
+
+
         self.device = device
         self.batch_size = batch_size
         self.channel_mean = channel_mean
 
-        
+
     def create_or_load_features(self,
-                               save_patches=True):
+                               save_features=True,
+                               save_image_patches=False,
+                               overwrite=False):
         load_features = True
         save_dir = os.path.join(self.checkpoint_dir, 'saved')
         features_restore_path = os.path.join(save_dir, 'features_index_numbers.pth' )
         # Special checks for if we want to save the image patches
-        if save_patches:
+        if save_image_patches:
             saved_filepaths_path = os.path.join(self.checkpoint_dir, 'filepaths.txt')
             if not os.path.exists(saved_filepaths_path):
                 load_features = False
-            
+
             # Compare saved filepaths to passed in filepaths
             saved_filepaths = np.array(read_lists(saved_filepaths_path))
-            
+
             if not (saved_filepaths == self.filepaths).all():
                 load_features = False
-            
+
             # Check if number of directories in 'patches' == length of filepaths
             image_save_dir = os.path.join(save_dir, 'image_patches')
             if not os.path.exists(image_save_dir):
@@ -106,16 +108,19 @@ class ConceptDiscovery(object):
                 if not n_discovery_img_dirs == len(self.filepaths):
                     load_features = False
         else:
+            # Check if we want to overwrite
+            if overwrite:
+                load_features = False
             # Check if features exists already
             if os.path.exists(features_restore_path):
                 self._load_features(
                     restore_path=features_restore_path
                 )
 
-                # If mismatch in number of discovery images from features and filepaths, load features
+                # If mismatch in number of discovery images from features and filepaths, create features
                 if len(np.unique(self.image_numbers)) != len(self.filepaths):
-                    load_features = True
-        
+                    load_features = False
+
         if not load_features:
             informal_log("Loading discovery images...", self.log_path, timestamp=True)
             discovery_images = load_images_from_files(
@@ -128,14 +133,16 @@ class ConceptDiscovery(object):
             informal_log("Obtaining features for superpixel patches...", self.log_path, timestamp=True)
             self._create_features(
                 discovery_images=discovery_images
+                save_features=save_features,
+                save_image_patches=save_image_patches
             )
         else:
             # If we have gotten here, load the features
             informal_log("Loading features found at {}...".format(save_dir), self.log_path, timestamp=True)
-            
+
             self._load_features(
                 restore_path=features_restore_path
-            ) 
+            )
 
     def _load_features(self,
                        restore_path):
@@ -145,38 +152,25 @@ class ConceptDiscovery(object):
         self.patch_numbers = data['patch_numbers']
         self.image_start_idxs = data['image_start_idxs']
 
-
-    # def _load_patches(self,
-    #                   patches_dir,
-    #                   filepaths):
-    #     dataset = []
-    #     image_numbers = []
-    #     patch_numbers = []
-        
-    #     # Load each patch data and add to appropriate list
-    #     for idx, _ in tqdm(enumerate(filepaths)):
-    #         patch_dir = os.path.join(patches_dir, str(idx))
-    #         patch_data_path = os.path.join(patch_dir, 'patches.pth')
-    #         patch_data = torch.load(patch_data_path)
-    #         dataset.append(patch_data['superpixels'])
-    #         image_numbers.append(patch_data['image_numbers'])
-    #         patch_numbers.append(patch_data['patch_numbers'])
-
-    #     # Concatenate lists
-    #     self.dataset = np.concatenate(dataset, axis=0)
-    #     self.image_numbers = np.concatenate(image_numbers, axis=0)
-    #     self.patch_numbers = np.concatenate(patch_numbers, axis=0)
-    #     print("Dataset shape: {}".format(self.dataset.shape))
-        
     def _create_features(self,
                       # superpixel segmentation parameters
                       discovery_images,
                       # Additional Parameters
-                      save=True,
-                      overwrite=True):
-        if save:
+                      save_features=True,
+                      save_image_patches=False):
+        if save_features:
             save_dir = os.path.join(self.checkpoint_dir, 'saved')
             ensure_dir(save_dir)
+
+        # data_save_path = os.path.join(save_dir, 'features_index_numbers.pth')
+        # if not overwrite and os.path.exists(data_save_path) and not save_image_patches:
+        #     restore_data = torch.load(data_save_path)
+        #     self.features = restore_data['features']
+        #     self.image_numbers = restore_data['image_numbers']
+        #     self.patch_numbers = restore_data['patch_numbers']
+        #     self.image_start_idxs = restore_data['image_start_idxs'
+        #     ]
+        #     return
 
         n_images = len(discovery_images)
 
@@ -217,7 +211,7 @@ class ConceptDiscovery(object):
                 features.append(superpixel_features)
                 image_numbers.append(cur_image_numbers)
                 patch_numbers.append(cur_patch_numbers)
-                if save:
+                if save_image_patches:
                     # Lists to store paths to the superpixels and patches for this image
                     image_superpixel_paths = []
                     image_patch_paths = []
@@ -243,40 +237,39 @@ class ConceptDiscovery(object):
                     patch_save_paths.append(image_patch_paths)
 
                 if image_idx % 10 == 0:
-                    informal_log("Created patches for {}/{} samples...".format(image_idx+1, n_images), 
+                    informal_log("Created patches for {}/{} samples...".format(image_idx+1, n_images),
                                      self.log_path, timestamp=True)
-                    informal_log("Running total of {} patches created...".format(n_patches_total), 
+                    informal_log("Running total of {} patches created...".format(n_patches_total),
                                      self.log_path, timestamp=True)
-        
+
         self.features = np.concatenate(features, axis=0)
         self.image_numbers = np.concatenate(image_numbers, axis=0)
         self.patch_numbers = np.concatenate(patch_numbers, axis=0)
         self.image_start_idxs = image_start_idxs
-        # Save features, image number, and patch numbers
-        save_data = {
-            'features': self.features,
-            'image_numbers': self.image_numbers,
-            'patch_numbers': self.patch_numbers,
-            'image_start_idxs': self.image_start_idxs
-        }
-        save_path = self._save(
-            datas=[save_data],
-            names=['features_index_numbers'],
-            save_dir=save_dir,
-            overwrite=overwrite
-        )[0]
-        informal_log("Saved features, image numbers, and patches to {}".format(save_path),
-                        self.log_path, timestamp=True)
-        
+
+
         # Save paths to the superpixels and patches
-        if save:
+        if save_features:
+            # Save features, image number, and patch numbers
+            save_data = {
+                'features': self.features,
+                'image_numbers': self.image_numbers,
+                'patch_numbers': self.patch_numbers,
+                'image_start_idxs': self.image_start_idxs
+            }
+            save_path = self._save(
+                datas=[save_data],
+                names=['features_index_numbers'],
+                save_dir=save_dir
+            )[0]
+            informal_log("Saved features, image numbers, and patches to {}".format(save_path),
+                        self.log_path, timestamp=True)
             self._save(
                 datas=[superpixel_save_paths, patch_save_paths],
                 names=['superpixel_save_paths', 'patch_save_paths'],
-                save_dir=save_dir,
-                overwrite=overwrite
+                save_dir=save_dir
             )
-        
+
 
     def _save(self,
               datas,
@@ -314,8 +307,8 @@ class ConceptDiscovery(object):
         method.
         Raises:
         ValueError: if the segementation method is invaled.
-        
-        Returns: 
+
+        Returns:
             (int, np.array, np.array)
                 int : image index
                 np.array : superpixel patches
@@ -323,7 +316,7 @@ class ConceptDiscovery(object):
         """
         # Passing in the index allows to use unordered maps
         idx, img = index_img
-        
+
         if param_dict is None:
             param_dict = {}
         if method == 'slic':
@@ -347,7 +340,7 @@ class ConceptDiscovery(object):
             min_sizes = param_dict.pop('min_size', [20] * n_params)
         else:
             raise ValueError('Invalid superpixel method {}!')
-        
+
         unique_masks = []
         for i in range(n_params):
             param_masks = []
@@ -377,7 +370,7 @@ class ConceptDiscovery(object):
                     if unique:
                         param_masks.append(mask)
             unique_masks.extend(param_masks)
-        
+
         superpixels, patches = [], []
         while unique_masks:
             superpixel, patch = self._extract_patch(img, unique_masks.pop())
@@ -406,32 +399,11 @@ class ConceptDiscovery(object):
         image_resized = np.array(image.resize(self.image_shape,
                                               Image.BICUBIC)).astype(float) / 255
         return image_resized, patch
-      
-    # def restore(self, restore_path):
-    #     restore_data = torch.load(restore_path)
-    #     if restore_data['dataset'] is not None:
-    #         self.dataset = restore_data['dataset']
-    #     if restore_data['image_numbers'] is not None:
-    #         self.image_numbers = restore_data['image_numbers']
-    #     if restore_data['patches'] is not None:
-    #         self.patches = restore_data['patches']
-    #     if restore_data['features'] is not None:
-    #         self.features = restore_data['features']
-            
-    # def print_shapes(self):
-    #     if self.dataset is not None:
-    #         print("Dataset (superpixel) shape: {}".format(self.dataset.shape))
-    #     if self.image_numbers is not None:
-    #         print("Image numbers shape: {}".format(self.image_numbers.shape))
-    #     if self.patches is not None:
-    #         print("Patches shape: {}".format(self.patches.shape))
-    #     if self.features is not None:
-    #         print("Features shape: {}".format(self.features.shape))
-            
+
     def get_features(self,
                      dataset):
         features = []
-        
+
         self.features_model.eval()
         features_model = self.features_model.to(self.device)
 
@@ -443,33 +415,29 @@ class ConceptDiscovery(object):
                 batch = torch.tensor(batch, dtype=torch.float)
                 batch = torch.permute(batch, (0, 3, 1, 2))
                 batch = batch.to(self.device)
-                
+
                 batch_features = features_model(batch).cpu().numpy()
                 features.append(batch_features)
         features = np.concatenate(features, axis=0)
-        
+
         # Flatten features to n_samples x feature_dim array either by taking mean across channels
         # Or expanding channel to 1D array
         if self.channel_mean and len(features.shape) > 3:
             features = np.mean(features, axis=(2, 3))
-        else: 
+        else:
             features = np.reshape(features, [features.shape[0], -1])
         assert features.shape[0] == dataset.shape[0]
 
         return features
-        
-    
+
+
     def discover_concepts(self,
                         #   min_patches=5,
                         #   max_patches=40,
                           overwrite=False,
                           save=False):
-        
+
         # Check if centers and indices already exist
-        # concept_key = 'concepts-K_{}-min_{}-max_{}'.format(
-        #         self.cluster_param_dict['n_clusters'],
-        #         min_patches,
-        #         max_patches)
         concept_dir = os.path.join(self.checkpoint_dir, 'saved', self.concept_key)
         concept_index_path = os.path.join(concept_dir, 'concept_indexing.pth')
         concept_centers_path = os.path.join(concept_dir, 'concept_centers.pth')
@@ -479,22 +447,22 @@ class ConceptDiscovery(object):
             informal_log("Loading concept centers and index data from {} directory".format(concept_dir),
                          self.log_path, timestamp=True)
             return concept_centers, top_concept_index_data
-        
+
         # Cluster features to obtain concepts
         cluster_assignments, cluster_costs, cluster_centers = self._cluster_features(
             features=self.features)
-    
+
         # If for some reason cluster_centers is 1 x C x D, squeeze it to be C x D
         if len(cluster_centers.shape) == 3:
             cluster_centers = np.squeeze(cluster_centers)
-            
+
         concept_centers, top_concept_index_data = self._filter_concepts(
             assignments=cluster_assignments,
             costs=cluster_costs,
             centers=cluster_centers)
             # min_patches=self.min_patches_per_concept,
             # max_patches=self.max_patches_per_concept)
-        
+
         # Save image data
         if save:
             concept_save_dir = os.path.join(self.checkpoint_dir, 'saved', self.concept_key)
@@ -508,37 +476,37 @@ class ConceptDiscovery(object):
                          self.log_path, timestamp=True)
             informal_log("Saved which concept centers to {}".format(save_paths[1]),
                          self.log_path, timestamp=True)
-        
+
         return concept_centers, top_concept_index_data
-            
+
     def _cluster_features(self,
                           features=None):
         if features is None:
             if self.features is None:
                 raise ValueError("No features passed in and self.features is None. First run cd.create_or_load_features()")
             features = self.features
-            
+
         if self.cluster_method == 'KM':
             n_clusters = self.cluster_param_dict.pop('n_clusters', 25)
             kmeans = cluster.KMeans(
                 n_clusters,
                 random_state=self.seed)
             kmeans = kmeans.fit(features)
-            centers = kmeans.cluster_centers_  # C x D 
-            
+            centers = kmeans.cluster_centers_  # C x D
+
             # Calculate distance between each feature and each cluster
             features_expanded = np.expand_dims(features, 1)  # N x 1 x D
             centers_expanded = np.expand_dims(centers, 0) # 1 x C x D
             distance = np.linalg.norm(features_expanded - centers_expanded, ord=2, axis=-1) # N x C matrix
-            
+
             # For each sample, get cluster assignment
             assignments = np.argmin(distance, -1)  # N-dim vector
             costs = np.min(distance, -1)  # N-dim vector
             return assignments, costs, centers
         else:
             raise ValueError("Cluster method {} not supported".format(self.cluster_method))
-            
-    
+
+
     def _filter_concepts(self,
                          assignments,
                          costs,
@@ -571,16 +539,16 @@ class ConceptDiscovery(object):
         concept_centers = []
         top_concept_indexing_data = []
         for concept_idx in range(n_concepts):
-            # Get indices of superpixel patches that are in this concept 
+            # Get indices of superpixel patches that are in this concept
             label_idxs = np.where(assignments == concept_idx)[0]
             # Pass if not enough patches in this concept
             if len(label_idxs) < self.min_patches_per_concept:
                 continue
-            
+
             # Select images that contain this concept
             concept_image_numbers = set(self.image_numbers[label_idxs])
             n_discovery_images = len(set(self.image_numbers))
-            
+
             '''
             Frequency and popularity as defined in Appendix Section A
             '''
@@ -592,8 +560,8 @@ class ConceptDiscovery(object):
             high_popularity = len(label_idxs) > 2 * n_discovery_images
             # cluster size is as large as the number of discovery images
             medium_popularity = (len(label_idxs) > n_discovery_images)
-            
-            
+
+
             if high_frequency or \
                 high_popularity or \
                 (medium_frequency and medium_popularity):
@@ -609,15 +577,15 @@ class ConceptDiscovery(object):
             }
             top_concept_indexing_data.append(patch_index_data)
 
-            
+
         return concept_centers, top_concept_indexing_data
-            
+
     def get_features_for_concepts(self,
                                   concepts,
                                   save=True):
         '''
-        Given a model and dictionary of concepts, get the features for the images 
-        
+        Given a model and dictionary of concepts, get the features for the images
+
         Arg(s):
             model : torch.nn.Sequential
                 model where output is already the features
@@ -629,7 +597,7 @@ class ConceptDiscovery(object):
                         Corresponding image numbers
         Returns:
             list[np.array] : list of feature vectors for each concept
-                    
+
         '''
         concept_features = []
         for _, concept in enumerate(concepts):
@@ -647,7 +615,7 @@ class ConceptDiscovery(object):
             features = self.features[feature_idxs]
             concept['features'] = features
             concept_features.append(concept)
-            
+
         if save:
             concept_save_dir = os.path.join(self.checkpoint_dir, 'saved', self.concept_key)
             save_path = self._save(
@@ -658,9 +626,9 @@ class ConceptDiscovery(object):
             )[0]
             informal_log("Saved features to each concept in a list to {}".format(save_path),
                          self.log_path, timestamp=True)
-            
+
         return concept_features
-    
+
     def calculate_cavs(self,
                        concepts,
                        cav_hparams,
@@ -684,7 +652,7 @@ class ConceptDiscovery(object):
                 name of the bottleneck that activations are from
             min_acc : float
                 minimum accuracy to accept this CAV
-    
+
         '''
         delete_concepts = []
         # cavs = []
@@ -693,7 +661,7 @@ class ConceptDiscovery(object):
         cav_dir = os.path.join(self.checkpoint_dir, 'saved', self.concept_key, 'cavs')
         # all_features = [concept['features'] for concept in concepts]
         cav_activations, concept_names = self._format_activations(concepts=concepts)
-        
+
         n_trials = min(n_trials, len(concept_names) - 1)
 
         for concept_idx, target_concept_name in enumerate(concept_names):
@@ -723,7 +691,7 @@ class ConceptDiscovery(object):
 
         for concept in delete_concepts:
             self.delete_concept(bottleneck_name, concept)
-        
+
         return
 
     def _format_activations(self, concepts):
@@ -732,12 +700,12 @@ class ConceptDiscovery(object):
         format desired by cav
 
         Arg(s):
-            concepts : list[dict] where each dict has the keys 
+            concepts : list[dict] where each dict has the keys
                 {
                     'features': N x D np.array,
                     'image_numbers': N np.array,
                     'patch_numbers': N np.array
-            }   
+            }
 
         Returns:
          acts :  dictionary contains activations of concepts in each bottlenecks
@@ -756,7 +724,7 @@ class ConceptDiscovery(object):
             }
             concept_names.append(concept_name)
         return acts, concept_names
-            
+
     def _calculate_cav(self,
                        target_concept_name,
                        random_concept_name,
@@ -767,7 +735,7 @@ class ConceptDiscovery(object):
                        cav_hparams,
                        overwrite=False,
                        save_linear_model=True):
-        
+
         activations = {
             target_concept_name: {
                 bottleneck_name: target_concept_activations
@@ -789,7 +757,7 @@ class ConceptDiscovery(object):
         )
 
         return cav_instance
-    
+
     def _concept_cavs(self,
                       concept_names,
                       target_concept_name,
@@ -802,7 +770,7 @@ class ConceptDiscovery(object):
                       save_linear_model=True):
         '''
         Calculate repeated trials of a CAV for a specific concept. Return list of accuracies
-        
+
         Arg(s):
             concept_names : list[str]
                 list of concept names
@@ -819,7 +787,7 @@ class ConceptDiscovery(object):
                 dictionary of parameters for linear model
             cav_dir : str or None
                 directory to save CAVs
-            n_trials : int  
+            n_trials : int
                 number of repeated trials (# of random concepts to choose)
         '''
         # TODO: add hparameter search?
@@ -851,7 +819,7 @@ class ConceptDiscovery(object):
             # Store overall accuracy
             cav_accuracy = cav_instance.accuracies['overall']
             concept_accuracies.append(cav_accuracy)
-        
+
         return concept_accuracies
 
     def _consolidate_concept_information(self,
@@ -897,7 +865,7 @@ class ConceptDiscovery(object):
                 bottleneck_name: concept_dic
             }
         return dic
-    
+
     def delete_concept(self, bn, concept):
         """Removes a discovered concepts if it's not already removed.
 
@@ -908,15 +876,15 @@ class ConceptDiscovery(object):
         self.concept_dic[bn].pop(concept, None)
         # if concept in self.dic[bn]['concepts']:
         #     self.dic[bn]['concepts'].pop(self.dic[bn]['concepts'].index(concept))
-   
-    # def _save_concept_features(self, 
+
+    # def _save_concept_features(self,
     #                            concept_features):
     #     concepts_save_dir = os.path.join(self.checkpoint_dir, 'concepts')
     #     n_items = len(concept_features)
     #     for concept_idx, features in tqdm(enumerate(concept_features), total=n_items):
     #         cur_concept_save_dir = os.path.join(concepts_save_dir, 'concept_{}'.format(concept_idx))
     #         ensure_dir(cur_concept_save_dir)
-            
+
     #         save_path = save_torch(
     #             data=features,
     #             save_dir=cur_concept_save_dir,

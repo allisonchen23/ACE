@@ -23,7 +23,7 @@ def load_features_model(arch,
                   checkpoint_path=None):
     '''
     Build model from torchvision and load checkpoint. Return model and features model (cut off last layer)
-    
+
     Arg(s):
         arch : str
             model architecture as specific in torchvision.models.__dict__
@@ -33,7 +33,7 @@ def load_features_model(arch,
             path to restore model weights from
         device : torch.device
             Device to load model on
-            
+
     Returns:
         model, features_model
             model : restored model
@@ -48,19 +48,21 @@ def load_features_model(arch,
     model.eval()
     features_model = torch.nn.Sequential(*list(model.children())[:-1])
     features_model.eval()
-    
+
     return model, features_model
 
 def main(n_samples,
          debug=False,
          verbose=True):
-    
+
     # Variables for CD
     data_path = 'data/full_ade20k_imagelabels.pth'
-    save_dir = 'temp_save_{}'.format(n_samples)
+    save_dir = 'ace_saved/n_{}'.format(n_samples)
+    if debug:
+        save_dir = os.path.join('debug', save_dir)
     ensure_dir(save_dir)
     log_path = os.path.join(save_dir, 'log.txt')
-    
+
     seed = 0
     n_workers = 0
     image_shape = (224, 224)
@@ -70,14 +72,20 @@ def main(n_samples,
         'compactness': [10, 10, 10]
     }
     average_pixel_value = np.mean([0.485, 0.456, 0.406]) * 255 # ImageNet values
-    
+    patches_overwrite= False
+    if debug:
+        save_image_patches = False
+    else:
+        save_image_patches = True
+
+
     # Variables for model
     model_checkpoint_path = os.path.join('checkpoints/resnet18_places365.pth')
     model_arch = 'resnet18'
     n_classes = 365
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     batch_size = 256
-    
+
     # Variables for clustering
     cluster_method = 'KM'
     cluster_param_dict = {
@@ -85,7 +93,7 @@ def main(n_samples,
     }
     min_patches = 20
     max_patches = 40
-    cluster_overwrite = False
+    cluster_overwrite = True
 
     # Variables for CAVs
     cav_param_dict = {
@@ -118,7 +126,7 @@ def main(n_samples,
         n_classes=n_classes,
         device=device,
         checkpoint_path=model_checkpoint_path)
-    
+
     # Create concept discovery object
     cd = ConceptDiscovery(
         filepaths = paths,
@@ -140,29 +148,39 @@ def main(n_samples,
         n_workers=n_workers,
         checkpoint_dir=save_dir,
         seed=seed)
-    
+
     # Create patches
-    if verbose: 
+    if verbose:
         informal_log("Obtaining superpixel patches and corresponding features...", log_path, timestamp=True)
-    cd.create_or_load_features()
-    
+    cd.create_or_load_features(
+        save_features=save_features,
+        save_image_patches=save_image_patches
+    )
+
     if verbose:
         informal_log("Created patches & features from {} images".format(len(paths)), log_path, timestamp=True)
-    
-    
+
+
     # Clustering
     if verbose:
         informal_log("Clustering to discover concepts...", log_path, timestamp=True)
     concept_centers, concept_index_data = cd.discover_concepts(
         overwrite=cluster_overwrite,
         save=True)
-    
+
+    # Print some stats about the clustering
+    # if verbose:
+    #     n_concepts = len(concept_index_data)
+    #     patches_per_concept = [len(concept['image_numbers']) for concept in concept_index_data]
+
+    #     min_patches_per_concept = min(patches_per_concept)
+    #     max_patches_per_concept =
     if verbose:
         informal_log("Obtaining features for samples in each concept", log_path, timestamp=True)
     concept_features = cd.get_features_for_concepts(
         concepts=concept_index_data,
         save=True)
-    
+
     # Calculate CAVs for each concept
     cd.calculate_cavs(
         concepts=concept_features,
@@ -170,7 +188,7 @@ def main(n_samples,
         min_acc=min_acc,
         overwrite=cav_overwrite,
         save_linear_model=save_linear_model)
-    
+
     # Save concept dictionary
     save_paths = cd._save(
         datas=[cd.concept_dic],
@@ -179,14 +197,14 @@ def main(n_samples,
         overwrite=True)
     informal_log("Saved concept dictionary to {}".format(save_paths[0]),
                  log_path, timestamp=True)
-    
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--n_samples', required=True, type=int)
     parser.add_argument('--debug', action='store_true')
     args = parser.parse_args()
- 
+
     main(
         n_samples=args.n_samples,
         debug=args.debug)
